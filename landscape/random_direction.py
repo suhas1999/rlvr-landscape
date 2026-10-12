@@ -1144,6 +1144,9 @@ def main() -> None:
         ),
         seed=args.seed,
         max_model_len=args.max_model_len,
+        # Weights change in place between alpha points; a prefix-cache
+        # hit would reuse prompt KV computed with the previous weights.
+        enable_prefix_caching=False,
     )
 
     tokenizer = llm.get_tokenizer()
@@ -1272,6 +1275,9 @@ def main() -> None:
                 ),
                 seed=args.seed,
                 max_model_len=args.max_model_len,
+                # Weights change in place between alpha points; a prefix-cache
+                # hit would reuse prompt KV computed with the previous weights.
+                enable_prefix_caching=False,
             )
 
             tokenizer = llm.get_tokenizer()

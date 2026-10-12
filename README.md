@@ -114,6 +114,14 @@ chess data and gives identical outputs.
   uses the same installer as the SGD direction (maps fused layers, rebuilds each α
   from an fp32 copy, prefix caching off). **Re-run displacement plots made before this
   change.**
+- **Prefix caching in random-direction runs.** `visualize_reward_landscape_vllm.py` also
+  changed weights in place with prefix caching left at vLLM's default (on in the V1
+  engine). The prefix cache is keyed by prompt tokens only, so the same prompt at the
+  next α reused prompt KV computed with the previous α's weights. Every vLLM instance
+  whose weights are perturbed now sets `enable_prefix_caching=False`. Within a request
+  the normal KV cache is still used, so decoding speed is unchanged. **Random-direction
+  plots made with a vLLM version that enables prefix caching by default should be
+  re-run.**
 - **SGD direction computed inline.** `visualize_reward_landscape_sgd.py` crashed
   (`NameError`) without `--direction-path`; `along_direction.py` now works either way.
 - **Tied `lm_head`.** Displacement files include `lm_head.weight`; it is now ignored when
