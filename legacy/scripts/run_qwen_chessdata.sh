@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ===== Change experiment settings here =====
 GPU=3
-PYTHON_SCRIPT="visualize_reward_landscape.py"
+PYTHON_SCRIPT="legacy/visualize_reward_landscape.py"
 
 MODEL_CKPT="/mnt/sj/home/yichen/ms-swift/output_qwen3_1.7b_grpo_chess_skewed_multi_turn_full/v1-20260719-054720/checkpoint-100"
 EVAL_JSON="/mnt/sj/home/yichen/landscape_rlvr/train_data/chess_data/chess-rl-data-private/chess-rl-data/train_thinking/train_v4_easy_skewed_multi_turn_swift_sample100.jsonl"

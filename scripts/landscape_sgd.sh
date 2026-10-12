@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# bash scripts/run_qwen_math500_sgd.sh
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
+
+# bash scripts/landscape_sgd.sh
 
 # ============================================================
 # GPU settings
@@ -13,7 +17,6 @@ export VLLM_ALLOW_INSECURE_SERIALIZATION=1
 # Python script is configured for 2-GPU vLLM TP=2
 GPU="0"
 
-PYTHON_SCRIPT="visualize_reward_landscape_sgd.py"
 
 # ============================================================
 # Model
@@ -163,7 +166,7 @@ echo "=========================================="
 
 nohup env \
   CUDA_VISIBLE_DEVICES="${GPU}" \
-  python "${PYTHON_SCRIPT}" \
+  python -m landscape.along_direction \
     --model-ckpt "${MODEL_CKPT}" \
     --eval-json "${EVAL_JSON}" \
     --model-name "${MODEL_NAME}" \

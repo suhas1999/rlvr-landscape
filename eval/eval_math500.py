@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-# Run:
-# CUDA_VISIBLE_DEVICES=0 nohup python eval_math500_base.py > eval_math500_qwen3_0.6b_base.log 2>&1 &
+"""
+Evaluate a Qwen3 model (base or trained checkpoint) on MATH500 with vLLM and the
+PRM800K grader. No parameter perturbation: this is plain accuracy.
 
-"""Evaluate Qwen3 models on Math500 with vLLM and the PRM800K grader."""
+Base models (name ends with -base, or --base-model) get a plain prompt and greedy
+decoding; instruct/trained models get the chat template with non-thinking sampling.
 
+Examples:
+    # base model on the full 500
+    python -m eval.eval_math500 --model-path /tmp/erin/Qwen3-0.6B-Base
+    # trained checkpoint on the training split, greedy
+    python -m eval.eval_math500 --model-path .../checkpoint-50 --model-name step50 \
+        --data-path train_data/math500/train.jsonl --temperature 0 --max-new-tokens 2048
+"""
+
+import argparse
 import json
 import random
 import re
@@ -16,12 +27,8 @@ from tqdm import tqdm
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 
-from swift.grading.grader import grade_answer
+from rlvr_landscape.grading.grader import grade_answer
 
-
-# ============================================================
-# Configuration
-# ============================================================
 
 DEFAULT_SUFFIX = (
     "\nPlease reason step by step, and put your final answer within "
@@ -30,140 +37,60 @@ DEFAULT_SUFFIX = (
 
 
 # ============================================================
-# Model
+# Configuration
 # ============================================================
 
-# Choose one model.
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--model-path", required=True)
+    parser.add_argument("--model-name", default=None, help="Defaults to the last component of --model-path.")
+    parser.add_argument(
+        "--base-model",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Plain prompt, no chat template. Default: true if the model name ends with '-base'.",
+    )
+    parser.add_argument("--data-path", default="train_data/math500/test/test_500.jsonl")
+    parser.add_argument("--output-dir", default="math500_eval")
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=42)
+    # Sampling: defaults depend on base vs instruct (see below).
+    parser.add_argument("--temperature", type=float, default=None)
+    parser.add_argument("--top-p", type=float, default=None)
+    parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--max-new-tokens", type=int, default=None)
+    # vLLM
+    parser.add_argument("--max-model-len", type=int, default=32768)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.9)
+    parser.add_argument("--dtype", default="bfloat16")
+    parser.add_argument("--tensor-parallel-size", type=int, default=1, help="Number of visible GPUs.")
+    cfg = parser.parse_args()
 
-MODEL_NAME = "Qwen3-0.6B-Base"
-# MODEL_NAME = "Qwen3-1.7B-Base"
-# MODEL_NAME = "Qwen3-1.7B"
+    if cfg.model_name is None:
+        cfg.model_name = Path(cfg.model_path.rstrip("/")).name
+    if cfg.base_model is None:
+        cfg.base_model = cfg.model_name.lower().endswith("-base")
 
-MODEL_PATH = f"/tmp/erin/{MODEL_NAME}"
+    if cfg.base_model:
+        # Base model: no Qwen3 chat template, greedy decoding. Base models may
+        # not stop on <|im_end|>, so keep a bounded generation length.
+        defaults = dict(enable_thinking=None, use_chat_template=False, temperature=0.0,
+                        top_p=1.0, top_k=-1, max_new_tokens=8192, stop=None)
+    else:
+        # Qwen3 instruct model: official non-thinking sampling configuration.
+        defaults = dict(enable_thinking=False, use_chat_template=True, temperature=0.7,
+                        top_p=0.8, top_k=20, max_new_tokens=32768, stop=["<|im_end|>", "<|endoftext|>"])
+    for key, value in defaults.items():
+        if getattr(cfg, key, None) is None:
+            setattr(cfg, key, value)
 
-
-# ============================================================
-# Automatically determine model type
-# ============================================================
-
-IS_BASE_MODEL = MODEL_NAME.lower().endswith("-base")
-
-IS_INSTRUCT_MODEL = not IS_BASE_MODEL
-
-
-# ============================================================
-# Dataset
-# ============================================================
-
-DATA_PATH = (
-    "/mnt/swordfish-pool2/erinxia/rlvr-landscape/"
-    "train_data/math500/test/test_500.jsonl"
-)
-
-
-# ============================================================
-# Output
-# ============================================================
-
-OUTPUT_PATH = (
-    "/mnt/swordfish-pool2/erinxia/rlvr-landscape/"
-    "math500_eval/"
-    f"{MODEL_NAME.lower().replace('-', '_')}_max{MAX_NEW_TOKENS}"
-    "_math500_predictions.jsonl"
-)
-
-SUMMARY_PATH = OUTPUT_PATH.replace(
-    "_predictions.jsonl",
-    "_summary.json",
-)
-
-
-# ============================================================
-# General evaluation settings
-# ============================================================
-
-LIMIT: int | None = None
-
-SEED = 42
-
-
-# ============================================================
-# Model-specific generation settings
-# ============================================================
-
-if IS_BASE_MODEL:
-
-    # --------------------------------------------------------
-    # Base model
-    #
-    # Do NOT use Qwen3 chat template.
-    # Use plain prompt + greedy decoding.
-    # --------------------------------------------------------
-
-    ENABLE_THINKING = None
-
-    USE_CHAT_TEMPLATE = False
-
-    TEMPERATURE = 0.0
-
-    TOP_P = 1.0
-
-    TOP_K = -1
-
-    # Base models may not naturally stop with <|im_end|>.
-    # Keep a reasonable upper bound to avoid extremely long
-    # generations.
-    MAX_NEW_TOKENS = 8192
-
-    STOP = None
-
-else:
-
-    # --------------------------------------------------------
-    # Qwen3 Instruct model
-    #
-    # Official non-thinking sampling configuration.
-    # --------------------------------------------------------
-
-    ENABLE_THINKING = False
-
-    USE_CHAT_TEMPLATE = True
-
-    TEMPERATURE = 0.7
-
-    TOP_P = 0.8
-
-    TOP_K = 20
-
-    MAX_NEW_TOKENS = 32768
-
-    STOP = [
-        "<|im_end|>",
-        "<|endoftext|>",
-    ]
-
-
-# ============================================================
-# vLLM settings
-# ============================================================
-
-MAX_MODEL_LEN = 32768
-
-GPU_MEMORY_UTILIZATION = 0.9
-
-DTYPE = "bfloat16"
-
-# Change this according to the number of GPUs.
-#
-# For:
-#   CUDA_VISIBLE_DEVICES=0
-# use 1.
-#
-# For:
-#   CUDA_VISIBLE_DEVICES=0,1,2
-# use 3.
-
-TENSOR_PARALLEL_SIZE = 1
+    stem = (
+        f"{cfg.model_name.lower().replace('-', '_')}_max{cfg.max_new_tokens}"
+        f"_temp{cfg.temperature}_{Path(cfg.data_path).stem}"
+    )
+    cfg.output_path = str(Path(cfg.output_dir) / f"{stem}_predictions.jsonl")
+    cfg.summary_path = str(Path(cfg.output_dir) / f"{stem}_summary.json")
+    return cfg
 
 
 # ============================================================
@@ -481,6 +408,7 @@ def load_records(
 def format_prompt(
     tokenizer: Any,
     problem: str,
+    cfg: argparse.Namespace,
 ) -> str:
 
     content = (
@@ -492,7 +420,7 @@ def format_prompt(
     # Base model
     # --------------------------------------------------------
 
-    if IS_BASE_MODEL:
+    if cfg.base_model:
 
         return content
 
@@ -519,18 +447,20 @@ def format_prompt(
 
 def main() -> None:
 
+    cfg = parse_args()
+
     # ========================================================
     # Seeds
     # ========================================================
 
-    random.seed(SEED)
+    random.seed(cfg.seed)
 
-    np.random.seed(SEED)
+    np.random.seed(cfg.seed)
 
-    torch.manual_seed(SEED)
+    torch.manual_seed(cfg.seed)
 
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(SEED)
+        torch.cuda.manual_seed_all(cfg.seed)
 
 
     # ========================================================
@@ -544,22 +474,22 @@ def main() -> None:
     print("=" * 70)
 
     print(
-        f"Model:              {MODEL_PATH}"
+        f"Model:              {cfg.model_path}"
     )
 
     print(
-        f"Dataset:            {DATA_PATH}"
+        f"Dataset:            {cfg.data_path}"
     )
 
     print(
-        f"Output:             {OUTPUT_PATH}"
+        f"Output:             {cfg.output_path}"
     )
 
     print()
 
     print("Model type:")
 
-    if IS_BASE_MODEL:
+    if cfg.base_model:
         print("  Base model")
     else:
         print("  Instruct model")
@@ -570,12 +500,12 @@ def main() -> None:
 
     print(
         f"  chat_template:     "
-        f"{USE_CHAT_TEMPLATE}"
+        f"{cfg.use_chat_template}"
     )
 
     print(
         f"  enable_thinking:   "
-        f"{ENABLE_THINKING}"
+        f"{cfg.enable_thinking}"
     )
 
     print()
@@ -584,22 +514,22 @@ def main() -> None:
 
     print(
         f"  temperature:       "
-        f"{TEMPERATURE}"
+        f"{cfg.temperature}"
     )
 
     print(
         f"  top_p:             "
-        f"{TOP_P}"
+        f"{cfg.top_p}"
     )
 
     print(
         f"  top_k:             "
-        f"{TOP_K}"
+        f"{cfg.top_k}"
     )
 
     print(
         f"  max_new_tokens:    "
-        f"{MAX_NEW_TOKENS}"
+        f"{cfg.max_new_tokens}"
     )
 
     print()
@@ -608,22 +538,22 @@ def main() -> None:
 
     print(
         f"  dtype:             "
-        f"{DTYPE}"
+        f"{cfg.dtype}"
     )
 
     print(
         f"  max_model_len:     "
-        f"{MAX_MODEL_LEN}"
+        f"{cfg.max_model_len}"
     )
 
     print(
         f"  gpu_memory_util:   "
-        f"{GPU_MEMORY_UTILIZATION}"
+        f"{cfg.gpu_memory_utilization}"
     )
 
     print(
         f"  tensor_parallel:   "
-        f"{TENSOR_PARALLEL_SIZE}"
+        f"{cfg.tensor_parallel_size}"
     )
 
     print("=" * 70)
@@ -634,7 +564,7 @@ def main() -> None:
     # ========================================================
 
     tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_PATH,
+        cfg.model_path,
         trust_remote_code=True,
     )
 
@@ -647,13 +577,13 @@ def main() -> None:
     # ========================================================
 
     llm = LLM(
-        model=MODEL_PATH,
-        dtype=DTYPE,
+        model=cfg.model_path,
+        dtype=cfg.dtype,
         trust_remote_code=True,
-        gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
-        max_model_len=MAX_MODEL_LEN,
-        tensor_parallel_size=TENSOR_PARALLEL_SIZE,
-        seed=SEED,
+        gpu_memory_utilization=cfg.gpu_memory_utilization,
+        max_model_len=cfg.max_model_len,
+        tensor_parallel_size=cfg.tensor_parallel_size,
+        seed=cfg.seed,
     )
 
 
@@ -662,15 +592,15 @@ def main() -> None:
     # ========================================================
 
     sampling_kwargs = {
-        "temperature": TEMPERATURE,
-        "top_p": TOP_P,
-        "top_k": TOP_K,
-        "max_tokens": MAX_NEW_TOKENS,
-        "seed": SEED,
+        "temperature": cfg.temperature,
+        "top_p": cfg.top_p,
+        "top_k": cfg.top_k,
+        "max_tokens": cfg.max_new_tokens,
+        "seed": cfg.seed,
     }
 
-    if STOP is not None:
-        sampling_kwargs["stop"] = STOP
+    if cfg.stop is not None:
+        sampling_kwargs["stop"] = cfg.stop
 
     sampling_params = SamplingParams(
         **sampling_kwargs
@@ -682,8 +612,8 @@ def main() -> None:
     # ========================================================
 
     records = load_records(
-        DATA_PATH,
-        LIMIT,
+        cfg.data_path,
+        cfg.limit,
     )
 
     print()
@@ -699,7 +629,7 @@ def main() -> None:
     # ========================================================
 
     output_path = Path(
-        OUTPUT_PATH
+        cfg.output_path
     )
 
     output_path.parent.mkdir(
@@ -739,6 +669,7 @@ def main() -> None:
         format_prompt(
             tokenizer,
             problem,
+            cfg,
         )
         for problem in problems
     ]
@@ -967,7 +898,7 @@ def main() -> None:
     # ========================================================
 
     summary_path = Path(
-        SUMMARY_PATH
+        cfg.summary_path
     )
 
     summary_path.parent.mkdir(
@@ -981,17 +912,17 @@ def main() -> None:
         # Model
         # ----------------------------------------------------
 
-        "model_name": MODEL_NAME,
+        "model_name": cfg.model_name,
 
-        "model_path": MODEL_PATH,
+        "model_path": cfg.model_path,
 
         "model_type": (
             "base"
-            if IS_BASE_MODEL
+            if cfg.base_model
             else "instruct"
         ),
 
-        "data_path": DATA_PATH,
+        "data_path": cfg.data_path,
 
         "predictions_path": str(
             output_path.resolve()
@@ -1042,11 +973,11 @@ def main() -> None:
         # ----------------------------------------------------
 
         "use_chat_template": (
-            USE_CHAT_TEMPLATE
+            cfg.use_chat_template
         ),
 
         "enable_thinking": (
-            ENABLE_THINKING
+            cfg.enable_thinking
         ),
 
 
@@ -1054,17 +985,17 @@ def main() -> None:
         # Sampling
         # ----------------------------------------------------
 
-        "temperature": TEMPERATURE,
+        "temperature": cfg.temperature,
 
-        "top_p": TOP_P,
+        "top_p": cfg.top_p,
 
-        "top_k": TOP_K,
+        "top_k": cfg.top_k,
 
         "max_new_tokens": (
-            MAX_NEW_TOKENS
+            cfg.max_new_tokens
         ),
 
-        "stop": STOP,
+        "stop": cfg.stop,
 
 
         # ----------------------------------------------------
@@ -1073,21 +1004,21 @@ def main() -> None:
 
         "backend": "vllm",
 
-        "dtype": DTYPE,
+        "dtype": cfg.dtype,
 
         "max_model_len": (
-            MAX_MODEL_LEN
+            cfg.max_model_len
         ),
 
         "gpu_memory_utilization": (
-            GPU_MEMORY_UTILIZATION
+            cfg.gpu_memory_utilization
         ),
 
         "tensor_parallel_size": (
-            TENSOR_PARALLEL_SIZE
+            cfg.tensor_parallel_size
         ),
 
-        "seed": SEED,
+        "seed": cfg.seed,
 
 
         # ----------------------------------------------------
@@ -1131,7 +1062,7 @@ def main() -> None:
 
     print(
         f"Model:               "
-        f"{MODEL_PATH}"
+        f"{cfg.model_path}"
     )
 
     print(

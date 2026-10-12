@@ -8,7 +8,7 @@ GPUS="3,5,0,1"
 NUM_GPUS=3
 MASTER_PORT=29503
 # PYTHON_SCRIPT="visualize_reward_landscape.py"
-PYTHON_SCRIPT="visualize_reward_landscape_paral.py"
+PYTHON_SCRIPT="legacy/visualize_reward_landscape_paral.py"
 
 
 MODEL_CKPT="/mnt/sj/home/yichen/ms-swift/output_qwen3_1.7b_grpo_gsm8k_train200_test100_max512_full/v0-20260724-144147/checkpoint-100"

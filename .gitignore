@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+
+# Run outputs
+logs*/
+figs*/
+math500_eval/
+sgd_directions*/
+param_displace*/
+output_*/
+*.log

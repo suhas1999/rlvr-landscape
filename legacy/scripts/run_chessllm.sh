@@ -8,7 +8,7 @@ GPUS="1,2"
 NUM_GPUS=2
 MASTER_PORT=29507
 # PYTHON_SCRIPT="visualize_reward_landscape_sto.py"
-PYTHON_SCRIPT="visualize_reward_landscape_paral.py"
+PYTHON_SCRIPT="legacy/visualize_reward_landscape_paral.py"
 
 
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/rlvr-landscape/chess_llm/rl_C6p5e18_50m_alpha0.400_beta0.023/global_step_100"

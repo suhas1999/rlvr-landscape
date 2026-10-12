@@ -8,7 +8,7 @@ GPUS="1,2,3"
 NUM_GPUS=3
 MASTER_PORT=29502
 # PYTHON_SCRIPT="visualize_reward_landscape.py"
-PYTHON_SCRIPT="visualize_reward_landscape_paral.py"
+PYTHON_SCRIPT="legacy/visualize_reward_landscape_paral.py"
 
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_1.7b_grpo_math500_train300_test200_max512_full/v3-20260805-223143/checkpoint-10"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_1.7b_grpo_math500_train300_test200_max512_full/v0-20260805-180507/checkpoint-225"

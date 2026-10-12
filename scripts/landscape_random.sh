@@ -1,118 +1,111 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export OMP_NUM_THREADS=1
-export VLLM_LOGGING_LEVEL=DEBUG
-export NCCL_DEBUG=INFO
-export NCCL_SOCKET_FAMILY=AF_INET
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
-# bash scripts/run_qwen_math500_displacement.sh
+# bash scripts/landscape_random.sh
 
 # ============================================================
 # GPU settings
 # ============================================================
-
 export VLLM_ALLOW_INSECURE_SERIALIZATION=1
-
-# IMPORTANT:
-# Python script is configured for 2-GPU vLLM TP=2
-GPU="2"
-
-PYTHON_SCRIPT="visualize_reward_landscape_displace.py"
-# PYTHON_SCRIPT="visualize_reward_landscape_displace_multigpu.py"
+GPU="0"
 
 # ============================================================
 # Model
 # ============================================================
 
+# MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train100_lr_5e-6_max8192/v1-20260821-105102/checkpoint-100"
+# MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_5e-6_max2048/v7-20260903-071819/checkpoint-275"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_5e-6_max2048/v7-20260903-071819/checkpoint-75"
+# MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train8_lr_5e-6_max2048/v2-20260917-200704/checkpoint-250"
+# MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-50"
+MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-10"
+
+# MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_3e-6_max2048/v0-20260910-192151/checkpoint-50"
+# MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_3e-6_max2048/v0-20260910-192151/checkpoint-117"
+
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_5e-6_max2048/v18-20260903-125040/checkpoint-49"
-# MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-103"
-MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train8_lr_5e-6_max2048/v2-20260917-200704/checkpoint-109"
-# DIRECTION_PATH="/mnt/swordfish-pool2/erinxia/rlvr-landscape/param_displace/displacement_49_to_50.pt"
-DIRECTION_PATH="/mnt/swordfish-pool2/erinxia/rlvr-landscape/param_displace/displacement_lr_5e-6_109_to_110.pt"
 
-# EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_id299.jsonl"
-EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_8.jsonl"
+EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_id299.jsonl"
+# EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_8.jsonl"
 
+# EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train.jsonl"
 
-MODEL_NAME="qwen3_0.6b"
-CHECKPOINT_STEP=109
-DIR_STEP=110
 
 TASK="math500"
+RL_TYPE="grpo"
+DATASET="math500"
+MODEL_NAME="qwen3_0.6b"
+LR="5e-6"
+# CHECKPOINT_STEP=275
+CHECKPOINT_STEP=10
+# CHECKPOINT_STEP=117
+
 
 # ============================================================
 # Evaluation
 # ============================================================
 
-NUM_SAMPLES=8
+NUM_SAMPLES=1
 
 MAX_NEW_TOKENS=2048
 
 SEED=42
 
-# ============================================================
-# GRPO rollout
-# ============================================================
+# 每个 prompt 生成多少个 samples
+GROUP_SIZE=64
 
-PG_NUM_PROMPTS=16
-GROUP_SIZE=4
-
-# Sampling parameters
-TEMPERATURE=0.7
+TMP=0.7
 TOP_P=0.8
 TOP_K=20
 
 # ============================================================
-# Directions
+# Random directions
 # ============================================================
 
-NUM_DIRECTIONS=1
-DIRECTION_TYPE="displacement"
+NUM_DIRECTIONS=4
 
 # ============================================================
 # Landscape
 # ============================================================
 
-SCALE=1
-ALPHA_RANGE=20
-ALPHA_LEFT=50
-ALPHA_RIGHT=50
-
+SCALE=0.01
+ALPHA_RANGE=12
 NUM_POINTS=21
 
 # ============================================================
-# vLLM
+# vLLM settings
 # ============================================================
-
-TENSOR_PARALLEL_SIZE=1
 
 GPU_MEMORY_UTILIZATION=0.3
-
+MAX_NUM_SEQS=8
 MAX_MODEL_LEN=16384
 
-DTYPE="bfloat16"
-
 # ============================================================
-# Output
+# Plot
 # ============================================================
 
-OUTPUT_DIR="figs_math500_grpo_displacement_train8"
+YMIN=0.0
+YMAX=1.1
 
-LOG_DIR="logs_math500_grpo_displacement_train8"
+OUTPUT_DIR="figs_math500_grpo_random_lr_${LR}_vllm_train1"
 
-RUN_NAME="${DIRECTION_TYPE}"\
-"_${MODEL_NAME}"\
-"_dir${NUM_DIRECTIONS}"\
-"_scale${SCALE}_left${ALPHA_LEFT}_right${ALPHA_RIGHT}"\
-"_prompts${PG_NUM_PROMPTS}_group${GROUP_SIZE}"\
-"_ckpt${CHECKPOINT_STEP}_to${DIR_STEP}"\
+RUN_NAME="${RL_TYPE}_${DATASET}_${MODEL_NAME}"\
+"_random${NUM_DIRECTIONS}"\
+"_scale${SCALE}_alpha${ALPHA_RANGE}"\
+"_lr${LR}"\
+"_data${NUM_SAMPLES}_group${GROUP_SIZE}"\
+"_ckpt${CHECKPOINT_STEP}"\
 "_max_new${MAX_NEW_TOKENS}"\
-"_temp${TEMPERATURE}_topp${TOP_P}_topk${TOP_K}"\
+"_temp${TMP}_topp${TOP_P}"\
 "_pts${NUM_POINTS}_seed${SEED}"\
-"_gpu${GPU//,/}"\
+"_gpu${GPU}"\
 "_vllm"
+
+LOG_DIR="logs_math500_grpo_random_lr_${LR}_vllm_train1"
 
 mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}"
 
@@ -125,37 +118,23 @@ LOG_FILE="${LOG_DIR}/${RUN_NAME}.log"
 echo "=========================================="
 echo "Starting ${RUN_NAME}"
 echo "=========================================="
-
 echo "GPU: ${GPU}"
-
 echo "MODEL: ${MODEL_CKPT}"
-
-echo "DIRECTION_TYPE: ${DIRECTION_TYPE}"
 echo "NUM_DIRECTIONS: ${NUM_DIRECTIONS}"
-
+echo "NUM_SAMPLES: ${NUM_SAMPLES}"
 echo "GROUP_SIZE: ${GROUP_SIZE}"
-
 echo "MAX_NEW_TOKENS: ${MAX_NEW_TOKENS}"
-
-echo "TENSOR_PARALLEL_SIZE: ${TENSOR_PARALLEL_SIZE}"
 echo "MAX_MODEL_LEN: ${MAX_MODEL_LEN}"
+echo "MAX_NUM_SEQS: ${MAX_NUM_SEQS}"
 echo "GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION}"
-echo "DTYPE: ${DTYPE}"
-
-echo "TEMPERATURE: ${TEMPERATURE}"
+echo "TEMPERATURE: ${TMP}"
 echo "TOP_P: ${TOP_P}"
 echo "TOP_K: ${TOP_K}"
-
 echo "SCALE: ${SCALE}"
-echo "ALPHA_LEFT: ${ALPHA_LEFT}"
-echo "ALPHA_RIGHT: ${ALPHA_RIGHT}"
+echo "ALPHA_RANGE: ${ALPHA_RANGE}"
 echo "NUM_POINTS: ${NUM_POINTS}"
-
 echo "SEED: ${SEED}"
-
-echo "OUTPUT_DIR: ${OUTPUT_DIR}"
 echo "Log: ${LOG_FILE}"
-
 echo "=========================================="
 
 # ============================================================
@@ -164,39 +143,32 @@ echo "=========================================="
 
 nohup env \
   CUDA_VISIBLE_DEVICES="${GPU}" \
-  python -u "${PYTHON_SCRIPT}" \
+  python -m landscape.random_direction \
     --model-ckpt "${MODEL_CKPT}" \
     --eval-json "${EVAL_JSON}" \
-    --model-name "${MODEL_NAME}" \
     --task "${TASK}" \
-    --direction-path "${DIRECTION_PATH}" \
+    --lr "${LR}" \
+    --rl-type "${RL_TYPE}" \
+    --dataset "${DATASET}" \
+    --model-name "${MODEL_NAME}" \
     --checkpoint-step "${CHECKPOINT_STEP}" \
-    --dir-step "${DIR_STEP}" \
-    \
-    --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
-    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
-    --max-model-len "${MAX_MODEL_LEN}" \
-    --dtype "${DTYPE}" \
-    \
     --num-samples "${NUM_SAMPLES}" \
-    --max-new-tokens "${MAX_NEW_TOKENS}" \
-    --seed "${SEED}" \
-    \
-    --scale "${SCALE}" \
-    --alpha-left "${ALPHA_LEFT}" \
-    --alpha-right "${ALPHA_RIGHT}" \
-    --num-points "${NUM_POINTS}" \
-    --num-directions "${NUM_DIRECTIONS}" \
-    --direction-type "${DIRECTION_TYPE}" \
-    \
-    --pg-num-prompts "${PG_NUM_PROMPTS}" \
     --group-size "${GROUP_SIZE}" \
-    \
-    --temperature "${TEMPERATURE}" \
+    --temperature "${TMP}" \
     --top-p "${TOP_P}" \
     --top-k "${TOP_K}" \
-    \
+    --max-new-tokens "${MAX_NEW_TOKENS}" \
+    --seed "${SEED}" \
+    --scale "${SCALE}" \
+    --alpha-range "${ALPHA_RANGE}" \
+    --num-points "${NUM_POINTS}" \
+    --num-directions "${NUM_DIRECTIONS}" \
+    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
+    --max-num-seqs "${MAX_NUM_SEQS}" \
+    --max-model-len "${MAX_MODEL_LEN}" \
     --output-dir "${OUTPUT_DIR}" \
+    --ymin "${YMIN}" \
+    --ymax "${YMAX}" \
   > "${LOG_FILE}" 2>&1 &
 
 PID=$!
