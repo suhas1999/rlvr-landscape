@@ -25,13 +25,14 @@ from matplotlib.colors import LightSource, ListedColormap
 
 from landscape.plot_2d import grid_from_csv, smooth
 
-ORDER = ["canon_qkn", "canon", "raw_all", "raw_nonqk", "raw_global"]
+ORDER = ["canon_qkn", "canon", "raw_all", "raw_nonqk", "raw_global", "raw_global_nonqk"]
 LABELS = {
     "canon_qkn": "canon + q/k-norm perturbed",
     "canon": "canon, norms fixed",
     "raw_all": "raw, all norms perturbed",
     "raw_nonqk": "raw, all norms except q/k",
     "raw_global": "raw, global (un-normalized)",
+    "raw_global_nonqk": "raw, global, q/k norms fixed",
 }
 
 
