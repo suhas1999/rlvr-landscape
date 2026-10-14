@@ -11,7 +11,7 @@ export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 # GPU settings
 # ============================================================
 export VLLM_ALLOW_INSECURE_SERIALIZATION=1
-GPU="0"
+GPU="${GPU:-0}"
 
 # ============================================================
 # Model
@@ -22,17 +22,17 @@ GPU="0"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_5e-6_max2048/v7-20260903-071819/checkpoint-75"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train8_lr_5e-6_max2048/v2-20260917-200704/checkpoint-250"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-50"
-MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-10"
+MODEL_CKPT="${MODEL_CKPT:-/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-10}"
 
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_3e-6_max2048/v0-20260910-192151/checkpoint-50"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_3e-6_max2048/v0-20260910-192151/checkpoint-117"
 
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_5e-6_max2048/v18-20260903-125040/checkpoint-49"
 
-EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_id299.jsonl"
-# EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_8.jsonl"
+EVAL_JSON="${EVAL_JSON:-${REPO_ROOT}/train_data/math500/train_id299.jsonl}"
+# EVAL_JSON="${REPO_ROOT}/train_data/math500/train_8.jsonl"
 
-# EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train.jsonl"
+# EVAL_JSON="${REPO_ROOT}/train_data/math500/train.jsonl"
 
 
 TASK="math500"
@@ -41,7 +41,7 @@ DATASET="math500"
 MODEL_NAME="qwen3_0.6b"
 LR="5e-6"
 # CHECKPOINT_STEP=275
-CHECKPOINT_STEP=10
+CHECKPOINT_STEP="${CHECKPOINT_STEP:-10}"
 # CHECKPOINT_STEP=117
 
 
@@ -80,8 +80,8 @@ NUM_POINTS=21
 # vLLM settings
 # ============================================================
 
-GPU_MEMORY_UTILIZATION=0.3
-MAX_NUM_SEQS=8
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.3}"
+MAX_NUM_SEQS="${MAX_NUM_SEQS:-8}"
 MAX_MODEL_LEN=16384
 
 # ============================================================

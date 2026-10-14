@@ -20,7 +20,7 @@ export VLLM_ALLOW_INSECURE_SERIALIZATION=1
 
 # IMPORTANT:
 # Python script is configured for 2-GPU vLLM TP=2
-GPU="2"
+GPU="${GPU:-2}"
 
 
 # ============================================================
@@ -30,16 +30,16 @@ GPU="2"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_5e-6_max2048/v7-20260903-071819/checkpoint-75"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train300_lr_5e-6_max2048/v18-20260903-125040/checkpoint-49"
 # MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-103"
-MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train8_lr_5e-6_max2048/v2-20260917-200704/checkpoint-109"
-# DIRECTION_PATH="/mnt/swordfish-pool2/erinxia/rlvr-landscape/param_displace/displacement_49_to_50.pt"
-DIRECTION_PATH="/mnt/swordfish-pool2/erinxia/rlvr-landscape/param_displace/displacement_lr_5e-6_109_to_110.pt"
+MODEL_CKPT="${MODEL_CKPT:-/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train8_lr_5e-6_max2048/v2-20260917-200704/checkpoint-109}"
+# DIRECTION_PATH="${REPO_ROOT}/param_displace/displacement_49_to_50.pt"
+DIRECTION_PATH="${DIRECTION_PATH:-${REPO_ROOT}/param_displace/displacement_lr_5e-6_109_to_110.pt}"
 
-# EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_id299.jsonl"
-EVAL_JSON="/mnt/swordfish-pool2/erinxia/rlvr-landscape/train_data/math500/train_8.jsonl"
+# EVAL_JSON="${REPO_ROOT}/train_data/math500/train_id299.jsonl"
+EVAL_JSON="${EVAL_JSON:-${REPO_ROOT}/train_data/math500/train_8.jsonl}"
 
 
 MODEL_NAME="qwen3_0.6b"
-CHECKPOINT_STEP=109
+CHECKPOINT_STEP="${CHECKPOINT_STEP:-109}"
 DIR_STEP=110
 
 TASK="math500"
@@ -90,7 +90,7 @@ NUM_POINTS=21
 
 TENSOR_PARALLEL_SIZE=1
 
-GPU_MEMORY_UTILIZATION=0.3
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.3}"
 
 MAX_MODEL_LEN=16384
 

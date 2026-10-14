@@ -1,0 +1,22 @@
+[project]
+name = "rlvr-landscape"
+version = "0.1.0"
+description = "Reward landscapes of RLVR-trained language models"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    # apply_model + V1 engine as used by rlvr_landscape/perturb.py; torch 2.8.0 / CUDA 12.8
+    "vllm==0.10.2",
+    "transformers>=4.55.2,<4.58",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "sympy",
+    "pylatexenc",
+    "tqdm",
+    "huggingface_hub[cli]",
+]
+
+[tool.uv]
+# vLLM only ships Linux x86_64 CUDA wheels; resolve the lock for the GPU box only.
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

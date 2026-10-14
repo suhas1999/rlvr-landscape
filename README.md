@@ -40,6 +40,8 @@ landscape/                 sweep α and plot reward
 
 eval/eval_math500.py       plain MATH500 accuracy (base or trained model), no perturbation
 
+cloud/                     single-GPU cloud setup (uv env, Vast.ai helper, GPU smoke test)
+
 scripts/                   launchers with the experiment configs (edit these)
   landscape_random.sh  landscape_sgd.sh  landscape_displacement.sh  compute_sgd_direction.sh
 
@@ -77,6 +79,44 @@ so `rlvr_landscape` is importable. The `scripts/*.sh` launchers do this for you.
 
 Each landscape run writes a CSV of mean reward per α, a CSV of per-completion
 records, and absolute and relative (R(α)/R(0)) plots to `--output-dir`.
+
+## Running on a rented GPU (Vast.ai)
+
+Everything runs on one GPU. The Python env is pinned by `pyproject.toml` / `uv.lock`
+(vLLM 0.10.2, torch 2.8.0 / CUDA 12.8; Linux x86_64 only).
+
+```bash
+# laptop, once
+uvx vastai set api-key <KEY>
+uvx vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"
+
+# laptop: pick and rent a box (setup_instance.sh runs automatically on boot)
+bash cloud/vast.sh offers A100_SXM4            # or H100_SXM; add "bid" for interruptible
+bash cloud/vast.sh create <OFFER_ID> [BID]     # BID only for interruptible
+bash cloud/vast.sh log <INSTANCE_ID>           # wait for "Setup done"
+bash cloud/vast.sh push <INSTANCE_ID> path/to/checkpoint-50   # -> /workspace/checkpoints/
+
+# on the box
+source cloud/env.sh
+python -m cloud.smoke_test --model $BASE_MODEL  # vLLM + perturbation checks, prints tok/s
+export RLVR_ENFORCE_EAGER=0                     # only if the smoke test says graphs are safe
+MODEL_CKPT=$CKPT_ROOT/checkpoint-50 CHECKPOINT_STEP=50 bash scripts/landscape_random.sh
+
+# laptop: results back, then stop paying
+bash cloud/vast.sh pull <INSTANCE_ID>           # -> ./results/
+bash cloud/vast.sh destroy <INSTANCE_ID>
+```
+
+`cloud/env.sh` keeps the venv, HF cache and vLLM compile cache under `/workspace`, so a
+stop/start or an interruptible pause does not reinstall anything. On a dedicated GPU it
+sets `GPU_MEMORY_UTILIZATION=0.85` (the launchers default to 0.25-0.3 for shared cluster
+GPUs). The launchers take `MODEL_CKPT`, `EVAL_JSON`, `DIRECTION_PATH`, `CHECKPOINT_STEP`,
+`GPU` and `GPU_MEMORY_UTILIZATION` from the environment.
+
+`RLVR_ENFORCE_EAGER` controls the engines built by `create_vllm` (SGD / displacement
+landscapes). Weights are updated with an in-place `copy_`, so CUDA graphs should stay
+valid. `cloud/smoke_test.py` checks this directly by comparing eager and graph log-probs
+at a perturbed α. `landscape/random_direction.py` already ran with graphs on.
 
 ## Data (`train_data/math500`)
 

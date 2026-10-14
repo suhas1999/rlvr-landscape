@@ -1,6 +1,7 @@
 """vLLM engine creation, CUDA cleanup and MATH500 reward evaluation."""
 
 import gc
+import os
 
 import numpy as np
 import torch
@@ -56,8 +57,10 @@ def create_vllm(args):
 
         max_model_len=args.max_model_len,
 
-        # Required because we mutate model parameters.
-        enforce_eager=True,
+        # Weights are updated in place (param.copy_), so CUDA graphs stay valid.
+        # Eager stays the default until cloud/smoke_test.py has confirmed that
+        # on the installed vLLM; RLVR_ENFORCE_EAGER=0 enables graphs (faster).
+        enforce_eager=os.environ.get("RLVR_ENFORCE_EAGER", "1") != "0",
 
         enable_prefix_caching=False,
 

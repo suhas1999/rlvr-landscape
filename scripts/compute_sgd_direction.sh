@@ -9,10 +9,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
-GPU="0"
-CHECKPOINT_STEP=110
-MODEL_CKPT="/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-${CHECKPOINT_STEP}"
-EVAL_JSON="${REPO_ROOT}/train_data/math500/train_id299.jsonl"
+GPU="${GPU:-0}"
+CHECKPOINT_STEP="${CHECKPOINT_STEP:-110}"
+MODEL_CKPT="${MODEL_CKPT:-/mnt/swordfish-pool2/erinxia/ms-swift/output_qwen3_0.6b_nonthink_grpo_math500_train1_lr_5e-6_max2048/v0-20260916-223901/checkpoint-${CHECKPOINT_STEP}}"
+EVAL_JSON="${EVAL_JSON:-${REPO_ROOT}/train_data/math500/train_id299.jsonl}"
 MODEL_NAME="qwen3_0.6b"
 NUM_SAMPLES=1
 PG_NUM_PROMPTS=1
