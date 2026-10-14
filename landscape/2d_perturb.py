@@ -25,10 +25,15 @@ import argparse
 import gzip
 import json
 import math
+import os
 import random
 import sys
 import time
 from pathlib import Path
+
+# Building directions uses torch CPU thread pools; a forked vLLM engine can then deadlock on
+# their locks (seen with the raw variants, which never touch CUDA before vLLM starts).
+os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 
 import numpy as np
 import pandas as pd
