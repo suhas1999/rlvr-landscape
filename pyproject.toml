@@ -15,6 +15,7 @@ dependencies = [
     "tqdm",
     "huggingface_hub[cli]",
     "wandb",
+    "plotly",
 ]
 
 [tool.uv]
