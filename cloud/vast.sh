@@ -48,7 +48,7 @@ case "${cmd}" in
             --image "${IMAGE}" --disk "${DISK_GB}" --ssh --direct \
             --label rlvr-landscape \
             --onstart-cmd "curl -LsSf ${SETUP_URL} | WORK=/workspace BRANCH=${BRANCH} bash > /workspace/setup.log 2>&1" \
-            "${extra[@]}"
+            ${extra[@]+"${extra[@]}"}
         echo "Wait ~1-3 min, then: bash cloud/vast.sh log <INSTANCE_ID>"
         ;;
     list)
