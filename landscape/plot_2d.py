@@ -123,6 +123,9 @@ def plot_interactive(fa, fb, fz, path, title):
 
 def plot(csv_path, title=None, out_dir=None):
     csv_path = Path(csv_path)
+    if "beta" not in pd.read_csv(csv_path, nrows=1).columns:
+        print(f"Not a 2-D grid (e.g. a range probe), skipping: {csv_path}")
+        return
     out_dir = Path(out_dir or csv_path.parent)
     alphas, betas, z, df = grid_from_csv(csv_path)
     title = title or csv_path.stem

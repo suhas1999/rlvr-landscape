@@ -5,8 +5,9 @@ Spec:
      MLP neuron (up/down), each KV head (v/o) and each RoPE pair of q_norm/k_norm.
      Function preserving.
   2. Directions: every 2-D weight gets a Gaussian whose rows are rescaled to the norms of
-     the weight's rows. 1-D params get 0, except (optionally) q_norm/k_norm, which get
-     noise rescaled per RoPE pair. CPU generator, explicit seed.
+     the weight's rows. 1-D params get 0 unless selected (perturb_norms): q_norm/k_norm
+     per RoPE pair, other norms per element. CPU generator, explicit seed.
+     global_direction is the un-normalized baseline (||d|| = ||theta||).
   3. Every grid point is rebuilt from the fp32 base: theta = base + a*d1 + b*d2.
 """
 
@@ -98,26 +99,38 @@ def canonicalize(params, config):
 
 
 QK_NORMS = ("self_attn.q_norm.weight", "self_attn.k_norm.weight")
+NORM_MODES = ("none", "qk", "nonqk", "all")
 
 
-def filter_normalized_direction(params, seed, perturb_qk_norm=False):
-    """Row-wise filter-normalized Gaussian direction; zero for 1-D params.
+def _perturbs_norm(name, mode):
+    is_qk = name.endswith(QK_NORMS)
+    return mode == "all" or (mode == "qk" and is_qk) or (mode == "nonqk" and not is_qk)
 
-    With perturb_qk_norm, q_norm/k_norm gammas also get noise, normalized per RoPE pair
-    (j, j + head_dim/2) to the gamma's pair norm. They use their own generator, so the
-    matrix noise is identical with or without it.
+
+def filter_normalized_direction(params, seed, perturb_norms="none"):
+    """Row-wise filter-normalized Gaussian direction.
+
+    1-D params (norm gammas) get 0 unless selected by perturb_norms (see NORM_MODES):
+      q_norm/k_norm   noise normalized per RoPE pair (j, j + head_dim/2) to gamma's pair norm
+      other norms     noise normalized per element: +-|gamma_i|
+    Norm noise uses its own generator, so the matrix noise does not depend on perturb_norms.
     """
+    if perturb_norms not in NORM_MODES:
+        raise ValueError(f"perturb_norms must be one of {NORM_MODES}")
     generator = torch.Generator(device="cpu").manual_seed(int(seed))
     norm_generator = torch.Generator(device="cpu").manual_seed(int(seed) + 1_000_003)
     direction = {}
     for name, weight in params.items():
-        if weight.dim() == 1 and perturb_qk_norm and name.endswith(QK_NORMS):
-            half = weight.numel() // 2
-            gamma = torch.stack([weight[:half], weight[half:]]).float()  # (2, pairs)
+        if weight.dim() == 1 and _perturbs_norm(name, perturb_norms):
+            if name.endswith(QK_NORMS):
+                half = weight.numel() // 2
+                gamma = torch.stack([weight[:half], weight[half:]]).float()  # (2, pairs)
+            else:
+                gamma = weight.float()[None, :]  # (1, n): each element is its own filter
             r = torch.randn(gamma.shape, generator=norm_generator, dtype=torch.float32)
             r = r / r.norm(dim=0, keepdim=True).clamp_min(EPS)
             r = r * gamma.norm(dim=0, keepdim=True)
-            direction[name] = torch.cat([r[0], r[1]])
+            direction[name] = r.reshape(-1) if r.shape[0] == 1 else torch.cat([r[0], r[1]])
         elif weight.dim() == 1:
             direction[name] = torch.zeros_like(weight, dtype=torch.float32)
         elif weight.dim() == 2:
@@ -127,6 +140,20 @@ def filter_normalized_direction(params, seed, perturb_qk_norm=False):
         else:
             raise RuntimeError(f"Unexpected {weight.dim()}-D parameter {name}")
     return direction
+
+
+def global_direction(params, seed):
+    """Plain Gaussian over every parameter (norms included), rescaled so ||d|| = ||theta||.
+
+    The classic un-normalized baseline: every element gets noise of the same size.
+    """
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    direction = {name: torch.randn(w.shape, generator=generator, dtype=torch.float32)
+                 for name, w in params.items()}
+    d_norm = torch.sqrt(sum((d.double() ** 2).sum() for d in direction.values()))
+    t_norm = torch.sqrt(sum((w.double() ** 2).sum() for w in params.values()))
+    scale = float(t_norm / d_norm)
+    return {name: d * scale for name, d in direction.items()}
 
 
 @torch.no_grad()

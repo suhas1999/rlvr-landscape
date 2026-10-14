@@ -6,12 +6,16 @@
 #   caffeinate -ims bash cloud/finish_and_destroy.sh INSTANCE_ID HOST PORT REMOTE_DIR LOCAL_DIR
 #
 # Also ends the run early (keeping partial results) after MAX_HOURS, or when the CSV has
-# not grown for STALL_MIN minutes.
+# not grown for STALL_MIN minutes. Partial results are synced down every SYNC_MIN minutes,
+# so a lost instance loses at most that much. PGREP_PAT is the process that means "running"
+# (use '[r]un_variant' for cloud/run_variant.sh).
 set -uo pipefail
 
 ID="$1"; HOST="$2"; PORT="$3"; REMOTE_DIR="$4"; LOCAL_DIR="$5"
 MAX_HOURS="${MAX_HOURS:-4}"
 STALL_MIN="${STALL_MIN:-40}"
+SYNC_MIN="${SYNC_MIN:-10}"
+PGREP_PAT="${PGREP_PAT:-[l]andscape/2d_perturb}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SSH=(ssh -o ConnectTimeout=20 -o ServerAliveInterval=30 -p "${PORT}" "root@${HOST}")
 mkdir -p "${LOCAL_DIR}"
@@ -20,10 +24,15 @@ log() { echo "$(date '+%F %T') $*" | tee -a "${LOG}"; }
 
 remote() { "${SSH[@]}" "$@" 2>/dev/null | grep -v "Welcome to vast.ai\|Have fun"; }
 
-start=$(date +%s); last_rows=-1; last_change=$(date +%s); ssh_fail=0; reason=""
+sync_down() {
+    rsync -a -e "ssh -o ConnectTimeout=20 -p ${PORT}" "root@${HOST}:${REMOTE_DIR}/" "${LOCAL_DIR}/" 2>>"${LOG}"
+    rsync -a -e "ssh -o ConnectTimeout=20 -p ${PORT}" "root@${HOST}:/workspace/run2d.log" "${LOCAL_DIR}/" 2>>"${LOG}"
+}
+
+start=$(date +%s); last_sync=${start}; last_rows=-1; last_change=$(date +%s); ssh_fail=0; reason=""
 log "watching instance ${ID} (${HOST}:${PORT}) ${REMOTE_DIR}"
 while true; do
-    out=$(remote "pgrep -f '[l]andscape/2d_perturb' >/dev/null && echo RUN || echo END; cat ${REMOTE_DIR}/*.csv 2>/dev/null | wc -l")
+    out=$(remote "pgrep -f '${PGREP_PAT}' >/dev/null && echo RUN || echo END; cat ${REMOTE_DIR}/*.csv 2>/dev/null | wc -l")
     if [ -z "${out}" ]; then
         ssh_fail=$((ssh_fail + 1)); log "ssh failed (${ssh_fail})"
         if [ ${ssh_fail} -ge 60 ]; then reason="ssh unreachable"; break; fi
@@ -33,6 +42,7 @@ while true; do
     state=$(echo "${out}" | head -1); rows=$(echo "${out}" | sed -n 2p | tr -d ' ')
     now=$(date +%s)
     [ "${rows}" != "${last_rows}" ] && { last_rows=${rows}; last_change=${now}; log "state=${state} csv_lines=${rows}"; }
+    if [ $((now - last_sync)) -ge $((SYNC_MIN * 60)) ]; then sync_down; last_sync=${now}; fi
     if [ "${state}" = END ]; then reason="run finished"; break; fi
     if [ $((now - start)) -ge $((MAX_HOURS * 3600)) ]; then reason="hit ${MAX_HOURS}h cap"; break; fi
     if [ $((now - last_change)) -ge $((STALL_MIN * 60)) ]; then reason="stalled ${STALL_MIN} min"; break; fi
@@ -48,13 +58,12 @@ fi
 
 if [ "${reason}" != "run finished" ]; then
     log "stopping the run early and plotting the partial grid"
-    remote "pkill -f '[l]andscape/2d_perturb'; sleep 10; pkill -9 -f 'VLLM::EngineCore'; cd /workspace/rlvr-landscape && source cloud/env.sh && for f in ${REMOTE_DIR}/*.csv; do python -m landscape.plot_2d \$f; done" | tail -2 | tee -a "${LOG}"
+    remote "pkill -f '${PGREP_PAT}'; pkill -f '[l]andscape/2d_perturb'; sleep 10; pkill -9 -f 'VLLM::EngineCore'; cd /workspace/rlvr-landscape && source cloud/env.sh && for f in ${REMOTE_DIR}/*.csv; do python -m landscape.plot_2d \$f; done" | tail -2 | tee -a "${LOG}"
 fi
 
 verified=0
 for attempt in 1 2 3 4 5; do
-    rsync -a -e "ssh -o ConnectTimeout=20 -p ${PORT}" "root@${HOST}:${REMOTE_DIR}/" "${LOCAL_DIR}/" 2>>"${LOG}"
-    rsync -a -e "ssh -o ConnectTimeout=20 -p ${PORT}" "root@${HOST}:/workspace/run2d.log" "${LOCAL_DIR}/" 2>>"${LOG}"
+    sync_down
     remote_lines=$(remote "cat ${REMOTE_DIR}/*.csv | wc -l" | tr -d ' ')
     local_lines=$(cat "${LOCAL_DIR}"/*.csv 2>/dev/null | wc -l | tr -d ' ')
     log "attempt ${attempt}: remote csv lines=${remote_lines} local=${local_lines}"
