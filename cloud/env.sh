@@ -17,8 +17,10 @@ export VLLM_ALLOW_INSECURE_SERIALIZATION=1
 export GPU=0
 export GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
 
-# Set to 0 after cloud/smoke_test.py passes "graph sees the weight update".
-export RLVR_ENFORCE_EAGER="${RLVR_ENFORCE_EAGER:-1}"
+# CUDA graphs on: cloud/smoke_test.py verified on vLLM 0.31 (A100) that graphs see the
+# in-place weight updates and alpha=0 restores exactly. Compiled and eager kernels differ
+# slightly (mean |dlogp| ~0.04), so keep one mode across runs you compare.
+export RLVR_ENFORCE_EAGER="${RLVR_ENFORCE_EAGER:-0}"
 
 export BASE_MODEL="${WORK}/models/Qwen3-0.6B"            # Qwen/Qwen3-0.6B (post-trained, run non-thinking)
 export PRETRAINED_MODEL="${WORK}/models/Qwen3-0.6B-Base"  # Qwen/Qwen3-0.6B-Base (pretrain only)
