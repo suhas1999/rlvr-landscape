@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="/workspace/models/Qwen3-0.6B")
+    parser.add_argument("--model", default=os.environ.get("BASE_MODEL", "/workspace/models/Qwen3-0.6B"))
     parser.add_argument(
         "--eval-json",
         default=str(REPO_ROOT / "train_data/math500/train_8.jsonl"),
@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument("--group-size", type=int, default=16)
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
-    parser.add_argument("--work-dir", default="/workspace/smoke_test")
+    parser.add_argument("--work-dir", default=os.path.join(os.environ.get("WORK", "/workspace"), "smoke_test"))
     # Internal: run one engine mode in a child process.
     parser.add_argument("--mode", choices=["eager", "graph"], default=None)
     return parser.parse_args()

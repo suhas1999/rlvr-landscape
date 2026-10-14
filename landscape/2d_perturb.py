@@ -100,8 +100,8 @@ def parse_args():
     p.add_argument("--output-dir", default="results/landscape2d")
     p.add_argument("--rollouts-per-prompt", type=int, default=-1,
                    help="Completions saved per prompt per grid point (0 = none, -1 = all).")
-    p.add_argument("--work-dir", default="/workspace/landscape2d_tmp",
-                   help="Large .pt files (base + directions); not results.")
+    p.add_argument("--work-dir", default=os.path.join(os.environ.get("WORK", "/workspace"), "landscape2d_tmp"),
+                   help="Large .pt files (base + directions); not results. Default: $WORK/landscape2d_tmp.")
     return p.parse_args()
 
 

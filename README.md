@@ -75,6 +75,23 @@ python -m eval.eval_math500 --model-path .../checkpoint-50 --model-name step50 \
     --data-path train_data/math500/train.jsonl --temperature 0 --max-new-tokens 2048
 ```
 
+## AICS cluster (Slurm)
+
+`cluster/` is the counterpart of `cloud/` for the AICS cluster. Venv, uv/HF/vLLM caches,
+models and results live on `/scratch/micah/$USER` (`$WORK`), not the NFS `$HOME`.
+
+```bash
+srun -p micah --gres=gpu:1 --cpus-per-task=16 --mem=128G --pty bash   # or use an existing job
+bash cluster/setup.sh             # once: uv sync --frozen + Qwen3-0.6B{,-Base} into $WORK/models
+source cluster/env.sh             # every shell; GPU_INDEX=N picks the N-th *allocated* GPU
+bash cluster/eval_math500.sh      # MATH500 on Qwen3-0.6B-Base -> $WORK/results/rlvr-landscape/
+sbatch cluster/eval_math500.sh $BASE_MODEL   # same, as a batch job (logs in $WORK/logs/)
+```
+
+`env.sh` pins the GPU by UUID: on csrtx6000-2 one unallocated GPU leaks past Slurm's cgroup,
+so a bare `CUDA_VISIBLE_DEVICES=1` can land on someone else's GPU. It exports `GPU` as that
+UUID, so the `scripts/*.sh` launchers (`CUDA_VISIBLE_DEVICES="${GPU}"`) work unchanged.
+
 Run Python entry points as modules from the repo root (`python -m landscape.along_direction ...`)
 so `rlvr_landscape` is importable. The `scripts/*.sh` launchers do this for you.
 
