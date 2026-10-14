@@ -2,7 +2,8 @@
 
 Spec:
   1. Canonicalize: fold RMSNorm gammas into the following Linear layers, balance each
-     MLP neuron (up/down) and each KV head (v/o). Function preserving.
+     MLP neuron (up/down), each KV head (v/o) and each RoPE pair of q_norm/k_norm.
+     Function preserving.
   2. Directions: 1-D params (norm gammas) get 0; every 2-D weight gets a Gaussian whose
      rows are rescaled to the norms of the weight's rows. CPU generator, explicit seed.
   3. Every grid point is rebuilt from the fp32 base: theta = base + a*d1 + b*d2.
@@ -79,6 +80,18 @@ def canonicalize(params, config):
             )
             v_h.mul_(s_h)
             o_h.div_(s_h)
+
+        # e. Balance q_norm / k_norm gammas per RoPE pair (j, j + head_dim/2). Scores depend on
+        #    gamma_q * gamma_k per pair, and a per-pair scale commutes with the rotation.
+        q_norm = p.get(pre + "self_attn.q_norm.weight")
+        k_norm = p.get(pre + "self_attn.k_norm.weight")
+        if q_norm is not None and k_norm is not None:
+            half = q_norm.numel() // 2
+            q_pair = torch.sqrt(q_norm[:half] ** 2 + q_norm[half:] ** 2).clamp_min(EPS)
+            k_pair = torch.sqrt(k_norm[:half] ** 2 + k_norm[half:] ** 2).clamp_min(EPS)
+            s = torch.sqrt(k_pair / q_pair).repeat(2)
+            q_norm.mul_(s)
+            k_norm.div_(s)
 
     return p
 
