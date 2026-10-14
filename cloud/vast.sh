@@ -47,7 +47,7 @@ case "${cmd}" in
         ${VAST} create instance "${offer}" \
             --image "${IMAGE}" --disk "${DISK_GB}" --ssh --direct \
             --label rlvr-landscape \
-            --onstart-cmd "mkdir -p /workspace && curl -LsSf ${SETUP_URL} | WORK=/workspace BRANCH=${BRANCH} bash > /workspace/setup.log 2>&1" \
+            --onstart-cmd "chown -R root:root /root/.ssh; chmod 700 /root/.ssh; chmod 600 /root/.ssh/authorized_keys; mkdir -p /workspace && curl -LsSf ${SETUP_URL} | WORK=/workspace BRANCH=${BRANCH} bash > /workspace/setup.log 2>&1" \
             ${extra[@]+"${extra[@]}"}
         echo "Wait ~1-3 min, then: bash cloud/vast.sh log <INSTANCE_ID>"
         ;;
