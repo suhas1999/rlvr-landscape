@@ -9,6 +9,7 @@
     raw_all     raw theta, filter-normalized, every norm perturbed (q/k per pair, rest per element)
     raw_nonqk   raw theta, filter-normalized, every norm except q_norm/k_norm perturbed
     raw_global  raw theta, one Gaussian over all params with ||d|| = ||theta|| (no normalization)
+    raw_global_nonqk  raw_global with q_norm/k_norm entries zeroed (same draw otherwise)
 
 --grid-range 0 (default) picks the range automatically: probe (alpha, 0) for growing alpha
 until the reward falls below --probe-threshold x the centre reward, then use
@@ -64,6 +65,7 @@ VARIANTS = {
     "raw_all": (False, "filter", "all"),
     "raw_nonqk": (False, "filter", "nonqk"),
     "raw_global": (False, "global", "all"),
+    "raw_global_nonqk": (False, "global", "nonqk"),
 }
 
 
@@ -89,6 +91,9 @@ def parse_args():
     p.add_argument("--range-factor", type=float, default=1.7)
     p.add_argument("--probe-confirm", type=int, default=2,
                    help="Consecutive probe points below the threshold needed to stop.")
+    p.add_argument("--stop-zero-rings", type=int, default=2,
+                   help="Stop once this many consecutive complete rings (points at the same "
+                        "distance from the centre) all have reward 0. 0 = run the full grid.")
     p.add_argument("--dir-seeds", type=int, nargs=2, default=[0, 1])
     p.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
@@ -163,6 +168,29 @@ def auto_range(llm, prompts, data, sampling, args, probe_path):
     raise RuntimeError("Reward never dropped: check the direction.")
 
 
+def zero_ring_streak(values, csv_path):
+    """Consecutive complete all-zero rings at the outer end of the measured grid, walking
+    rings outward from the centre (the grid is evaluated in this order)."""
+    if not csv_path.exists():
+        return 0
+    ring_of = lambda a, b: round(float(np.hypot(a, b)), 6)  # noqa: E731
+    sizes = {}
+    for a in values:
+        for b in values:
+            sizes[ring_of(a, b)] = sizes.get(ring_of(a, b), 0) + 1
+    df = pd.read_csv(csv_path).groupby(["alpha", "beta"])["reward"].mean().reset_index()
+    seen = {}
+    for a, b, r in zip(df["alpha"], df["beta"], df["reward"]):
+        seen.setdefault(ring_of(a, b), []).append(r)
+    streak = 0
+    for radius in sorted(sizes):
+        rewards = seen.get(radius, [])
+        if len(rewards) < sizes[radius]:
+            break  # ring not complete yet
+        streak = streak + 1 if max(rewards) == 0 else 0
+    return streak
+
+
 def save_rollouts(path, data, outputs, alpha, beta, group_size, per_prompt):
     """Write the first `per_prompt` completions of each prompt (all if -1), gzipped JSONL."""
     with gzip.open(path, "wt", encoding="utf-8") as f:
@@ -218,7 +246,7 @@ def main():
         torch.save(base, base_path)
         for seed, path in zip(args.dir_seeds, dir_paths):
             if dir_kind == "global":
-                direction = global_direction(base, seed)
+                direction = global_direction(base, seed, perturb_norms=norms)
             else:
                 direction = filter_normalized_direction(base, seed, perturb_norms=norms)
             torch.save(direction, path)
@@ -285,6 +313,9 @@ def main():
 
     wandb_run = init_run(args, job_type="landscape-2d", name=stem)
     todo = [ab for ab in grid_order(values) if (round(ab[0], 8), round(ab[1], 8)) not in done]
+    if args.stop_zero_rings and zero_ring_streak(values, csv_path) >= args.stop_zero_rings:
+        print("[stop] already stopped on zero rings; nothing left to run", flush=True)
+        todo = []
     t_start = time.time()
     for k, (alpha, beta) in enumerate(todo):
         t0 = time.time()
@@ -302,6 +333,10 @@ def main():
               f"trunc={rows[0]['truncated_frac']:.2f} {dt:.0f}s  ETA {eta / 60:.0f} min",
               flush=True)
         log_point(wandb_run, {"alpha": alpha, "beta": beta, "reward": reward}, "2d")
+        if args.stop_zero_rings and zero_ring_streak(values, csv_path) >= args.stop_zero_rings:
+            print(f"[stop] {args.stop_zero_rings} consecutive rings all at reward 0: "
+                  f"stopping with {len(todo) - k - 1} points left", flush=True)
+            break
 
     plot(csv_path, title=f"{args.model_name} MATH500 reward \u00b7 {args.variant}")
     finish_run(wandb_run, out_dir.glob(f"{stem}*"), results_df=pd.read_csv(csv_path))

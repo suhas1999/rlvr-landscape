@@ -142,18 +142,24 @@ def filter_normalized_direction(params, seed, perturb_norms="none"):
     return direction
 
 
-def global_direction(params, seed):
+def global_direction(params, seed, perturb_norms="all"):
     """Plain Gaussian over every parameter (norms included), rescaled so ||d|| = ||theta||.
 
     The classic un-normalized baseline: every element gets noise of the same size.
+    1-D params not selected by perturb_norms are zeroed after the rescale, so for a given
+    seed the other entries are identical whatever perturb_norms is.
     """
+    if perturb_norms not in NORM_MODES:
+        raise ValueError(f"perturb_norms must be one of {NORM_MODES}")
     generator = torch.Generator(device="cpu").manual_seed(int(seed))
     direction = {name: torch.randn(w.shape, generator=generator, dtype=torch.float32)
                  for name, w in params.items()}
     d_norm = torch.sqrt(sum((d.double() ** 2).sum() for d in direction.values()))
     t_norm = torch.sqrt(sum((w.double() ** 2).sum() for w in params.values()))
     scale = float(t_norm / d_norm)
-    return {name: d * scale for name, d in direction.items()}
+    return {name: d * scale if d.dim() != 1 or _perturbs_norm(name, perturb_norms)
+            else torch.zeros_like(d)
+            for name, d in direction.items()}
 
 
 @torch.no_grad()
