@@ -138,9 +138,12 @@ def main():
     lp_original = prompt_logprobs(llm, prompts[:8])
     print("Installed:", install_plane(llm, str(base_path), [str(p) for p in dir_paths]))
     set_plane_point(llm, [0.0, 0.0])
-    drift = float(np.abs(prompt_logprobs(llm, prompts[:8]) - lp_original).max())
-    print(f"[mapping] max |dlogp| original vs installed base: {drift:.2e}", flush=True)
-    if drift > 1e-2:
+    # Canonical weights round differently and vLLM kernels are not bit-exact, so allow
+    # float noise; a mapping bug (e.g. wrong qkv split) scrambles the model (|dlogp| ~ 1-10).
+    diff = np.abs(prompt_logprobs(llm, prompts[:8]) - lp_original)
+    print(f"[mapping] |dlogp| original vs installed base: mean {diff.mean():.2e} "
+          f"max {diff.max():.2e}", flush=True)
+    if diff.mean() > 1e-2 or diff.max() > 0.5:
         raise RuntimeError("Installed base does not reproduce the checkpoint: mapping bug.")
 
     # ---------------- grid ----------------
