@@ -60,6 +60,8 @@ def parse_args():
     p.add_argument("--grid-points", type=int, default=11)
     p.add_argument("--dir-seeds", type=int, nargs=2, default=[0, 1])
     p.add_argument("--no-canonicalize", action="store_true")
+    p.add_argument("--no-perturb-qk-norm", action="store_true",
+                   help="Zero direction on q_norm/k_norm too (all 1-D params fixed).")
     p.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     p.add_argument("--output-dir", default="results/landscape2d")
@@ -109,7 +111,8 @@ def main():
     work_dir.mkdir(parents=True, exist_ok=True)
 
     canon_tag = "raw" if args.no_canonicalize else "canon"
-    stem = (f"{args.model_name}_reward2d_{canon_tag}_{args.dtype}_seeds{args.dir_seeds[0]}-"
+    norm_tag = "" if args.no_perturb_qk_norm else "_qkn"
+    stem = (f"{args.model_name}_reward2d_{canon_tag}{norm_tag}_{args.dtype}_seeds{args.dir_seeds[0]}-"
             f"{args.dir_seeds[1]}_r{args.grid_range}_n{args.grid_points}_p{args.num_prompts}"
             f"_g{args.group_size}x{args.num_repeats}_tok{args.max_new_tokens}")
     csv_path = out_dir / f"{stem}.csv"
@@ -123,8 +126,8 @@ def main():
     data = random.Random(args.prompt_seed).sample(data, args.num_prompts)
 
     # ---------------- base + directions (fp32, CPU) ----------------
-    base_path = work_dir / f"base_{canon_tag}.pt"
-    dir_paths = [work_dir / f"dir_{canon_tag}_seed{s}.pt" for s in args.dir_seeds]
+    base_path = work_dir / f"base_{canon_tag}_v2.pt"  # v2: q_norm/k_norm balanced
+    dir_paths = [work_dir / f"dir_{canon_tag}{norm_tag}_v2_seed{s}.pt" for s in args.dir_seeds]
     if not (base_path.exists() and all(p.exists() for p in dir_paths)):
         params, config = load_fp32_params(args.model_ckpt)
         base = params if args.no_canonicalize else canonicalize(params, config)
@@ -142,7 +145,8 @@ def main():
 
         torch.save(base, base_path)
         for seed, path in zip(args.dir_seeds, dir_paths):
-            torch.save(filter_normalized_direction(base, seed), path)
+            torch.save(filter_normalized_direction(
+                base, seed, perturb_qk_norm=not args.no_perturb_qk_norm), path)
         del params, base
 
     # ---------------- vLLM ----------------
@@ -220,7 +224,7 @@ def main():
               flush=True)
         log_point(wandb_run, {"alpha": alpha, "beta": beta, "reward": mean_reward}, "2d")
 
-    plot(csv_path, title=f"{args.model_name} MATH500 reward landscape ({canon_tag})")
+    plot(csv_path, title=f"{args.model_name} MATH500 reward landscape ({canon_tag}{norm_tag})")
     finish_run(wandb_run, out_dir.glob(f"{stem}*"), results_df=pd.read_csv(csv_path))
     print("Done:", csv_path)
 

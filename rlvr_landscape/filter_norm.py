@@ -4,8 +4,9 @@ Spec:
   1. Canonicalize: fold RMSNorm gammas into the following Linear layers, balance each
      MLP neuron (up/down), each KV head (v/o) and each RoPE pair of q_norm/k_norm.
      Function preserving.
-  2. Directions: 1-D params (norm gammas) get 0; every 2-D weight gets a Gaussian whose
-     rows are rescaled to the norms of the weight's rows. CPU generator, explicit seed.
+  2. Directions: every 2-D weight gets a Gaussian whose rows are rescaled to the norms of
+     the weight's rows. 1-D params get 0, except (optionally) q_norm/k_norm, which get
+     noise rescaled per RoPE pair. CPU generator, explicit seed.
   3. Every grid point is rebuilt from the fp32 base: theta = base + a*d1 + b*d2.
 """
 
@@ -96,12 +97,28 @@ def canonicalize(params, config):
     return p
 
 
-def filter_normalized_direction(params, seed):
-    """Row-wise filter-normalized Gaussian direction; zero for 1-D params."""
+QK_NORMS = ("self_attn.q_norm.weight", "self_attn.k_norm.weight")
+
+
+def filter_normalized_direction(params, seed, perturb_qk_norm=False):
+    """Row-wise filter-normalized Gaussian direction; zero for 1-D params.
+
+    With perturb_qk_norm, q_norm/k_norm gammas also get noise, normalized per RoPE pair
+    (j, j + head_dim/2) to the gamma's pair norm. They use their own generator, so the
+    matrix noise is identical with or without it.
+    """
     generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    norm_generator = torch.Generator(device="cpu").manual_seed(int(seed) + 1_000_003)
     direction = {}
     for name, weight in params.items():
-        if weight.dim() == 1:
+        if weight.dim() == 1 and perturb_qk_norm and name.endswith(QK_NORMS):
+            half = weight.numel() // 2
+            gamma = torch.stack([weight[:half], weight[half:]]).float()  # (2, pairs)
+            r = torch.randn(gamma.shape, generator=norm_generator, dtype=torch.float32)
+            r = r / r.norm(dim=0, keepdim=True).clamp_min(EPS)
+            r = r * gamma.norm(dim=0, keepdim=True)
+            direction[name] = torch.cat([r[0], r[1]])
+        elif weight.dim() == 1:
             direction[name] = torch.zeros_like(weight, dtype=torch.float32)
         elif weight.dim() == 2:
             r = torch.randn(weight.shape, generator=generator, dtype=torch.float32)
