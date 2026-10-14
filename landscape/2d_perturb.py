@@ -6,12 +6,14 @@ theta is the fp32, canonicalized checkpoint (rlvr_landscape/filter_norm.py); d1 
 filter-normalized Gaussian directions with different seeds. Each grid point samples
 group_size completions per prompt, num_repeats times (different sampling seeds), and
 stores one row per repeat. Rows are appended to the CSV as they finish, so a killed run
-resumes where it stopped.
+resumes where it stopped. Completions are saved per point to
+<output-dir>/<stem>_rollouts/a<alpha>_b<beta>.jsonl.gz (--rollouts-per-prompt of them).
 
     PYTHONPATH=. python landscape/2d_perturb.py --model-ckpt $BASE_MODEL --output-dir results/landscape2d
 """
 
 import argparse
+import gzip
 import json
 import random
 import sys
@@ -61,6 +63,8 @@ def parse_args():
     p.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     p.add_argument("--output-dir", default="results/landscape2d")
+    p.add_argument("--rollouts-per-prompt", type=int, default=2,
+                   help="Completions saved per prompt per grid point (0 = none, -1 = all).")
     p.add_argument("--work-dir", default="/workspace/landscape2d_tmp",
                    help="Large .pt files (base + directions); not results.")
     return p.parse_args()
@@ -81,6 +85,22 @@ def prompt_logprobs(llm, texts):
     return np.array(values)
 
 
+def save_rollouts(path, data, outputs, alpha, beta, group_size, per_prompt):
+    """Write the first `per_prompt` completions of each prompt (all if -1), gzipped JSONL."""
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        for i, (ex, out) in enumerate(zip(data, outputs)):
+            completions = out.outputs if per_prompt < 0 else out.outputs[:per_prompt]
+            for j, c in enumerate(completions):
+                f.write(json.dumps({
+                    "alpha": alpha, "beta": beta, "prompt_idx": i,
+                    "repeat": j // group_size, "sample": j % group_size,
+                    "problem": ex["prompt"], "answer": ex["answer"],
+                    "completion": c.text,
+                    "reward": float(math500_reward_func(c.text, ex["answer"])),
+                    "num_tokens": len(c.token_ids), "finish_reason": c.finish_reason,
+                }, ensure_ascii=False) + "\n")
+
+
 def main():
     args = parse_args()
     out_dir = Path(args.output_dir)
@@ -93,6 +113,9 @@ def main():
             f"{args.dir_seeds[1]}_r{args.grid_range}_n{args.grid_points}_p{args.num_prompts}"
             f"_g{args.group_size}x{args.num_repeats}_tok{args.max_new_tokens}")
     csv_path = out_dir / f"{stem}.csv"
+    rollout_dir = out_dir / f"{stem}_rollouts"
+    if args.rollouts_per_prompt:
+        rollout_dir.mkdir(exist_ok=True)
     (out_dir / f"{stem}_config.json").write_text(json.dumps(vars(args), indent=2))
 
     # ---------------- data ----------------
@@ -183,6 +206,9 @@ def main():
                 "truncated_frac": truncated / len(lengths),
                 "n": len(rewards),
             })
+        if args.rollouts_per_prompt:
+            save_rollouts(rollout_dir / f"a{alpha:+.4f}_b{beta:+.4f}.jsonl.gz", data, outputs,
+                          alpha, beta, args.group_size, args.rollouts_per_prompt)
         pd.DataFrame(rows).to_csv(csv_path, mode="a", header=not csv_path.exists(), index=False)
 
         mean_reward = float(np.mean([row["reward"] for row in rows]))
