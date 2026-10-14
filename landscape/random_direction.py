@@ -29,6 +29,7 @@ from vllm import LLM, SamplingParams
 
 from rlvr_landscape.tasks import load_eval_data, select_reward_func
 from rlvr_landscape.tracking import finish_run, init_run, log_point
+from rlvr_landscape.vllm_utils import apply_to_model
 from rlvr_landscape.tasks.chess_single_turn import (
     chess_single_turn_move_to_uci,
     extract_chess_single_turn_move,
@@ -1365,8 +1366,9 @@ def main() -> None:
                     )
                 )
 
-                result = llm.apply_model(
-                    perturb_fn
+                result = apply_to_model(
+                    llm,
+                    perturb_fn,
                 )
 
                 print(

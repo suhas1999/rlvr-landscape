@@ -8,7 +8,7 @@ export UV_CACHE_DIR="${WORK}/.cache/uv"
 export HF_HOME="${WORK}/.cache/huggingface"
 # torch.compile / CUDA-graph cache: later engine starts skip recompilation.
 export VLLM_CACHE_ROOT="${WORK}/.cache/vllm"
-# apply_model sends a closure to the V1 engine-core process.
+# apply_to_model (collective_rpc) sends a closure to the V1 engine-core process.
 export VLLM_ALLOW_INSECURE_SERIALIZATION=1
 
 # One dedicated GPU: use most of it (the cluster launchers used 0.25-0.3 on shared GPUs).

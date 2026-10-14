@@ -11,6 +11,8 @@ from pathlib import Path
 
 import torch
 
+from rlvr_landscape.vllm_utils import apply_to_model
+
 
 def install_direction_on_vllm(llm, direction_path):
     direction_path = str(Path(direction_path).resolve())
@@ -173,7 +175,7 @@ def install_direction_on_vllm(llm, direction_path):
             "vllm_tensors_total": len(params),
         }
 
-    results = llm.apply_model(worker_install)
+    results = apply_to_model(llm, worker_install)
     print("Direction installed:", results)
     return results
 
@@ -243,4 +245,4 @@ def set_vllm_coefficient(llm, coefficient):
             "updated_parameters": len(params),
         }
 
-    return llm.apply_model(worker_set_coefficient)
+    return apply_to_model(llm, worker_set_coefficient)

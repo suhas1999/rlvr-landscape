@@ -70,6 +70,21 @@ def create_vllm(args):
     return llm
 
 
+def apply_to_model(llm, fn):
+    """Run fn(model) inside every vLLM worker; returns one result per worker.
+
+    Use this instead of LLM.apply_model, which is broken in some V1 releases
+    (vLLM 0.10.2: 'LLMEngine' object has no attribute 'model_executor').
+    collective_rpc works across V1 releases. Needs
+    VLLM_ALLOW_INSECURE_SERIALIZATION=1 to send the closure to the engine process.
+    """
+
+    def call_on_worker(worker):
+        return fn(worker.get_model())
+
+    return llm.collective_rpc(call_on_worker)
+
+
 def cleanup_cuda():
 
     gc.collect()
