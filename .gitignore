@@ -9,3 +9,4 @@ sgd_directions*/
 param_displace*/
 output_*/
 *.log
+results/
