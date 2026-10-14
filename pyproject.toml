@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Reward landscapes of RLVR-trained language models"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    # apply_model + V1 engine as used by rlvr_landscape/perturb.py; torch 2.8.0 / CUDA 12.8
-    "vllm==0.10.2",
-    "transformers>=4.55.2,<4.58",
+    # torch 2.13 / CUDA 13: needs an NVIDIA driver >= 580 on the GPU box
+    "vllm==0.31.0",
+    "transformers>=5.10.4,<5.18",
     "numpy",
     "pandas",
     "matplotlib",

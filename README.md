@@ -84,7 +84,8 @@ records, and absolute and relative (R(α)/R(0)) plots to `--output-dir`.
 ## Running on a rented GPU (Vast.ai)
 
 Everything runs on one GPU. The Python env is pinned by `pyproject.toml` / `uv.lock`
-(vLLM 0.10.2, torch 2.8.0 / CUDA 12.8; Linux x86_64 only).
+(vLLM 0.31.0, torch 2.13 / CUDA 13; Linux x86_64 only). The box needs an NVIDIA driver
+>= 580; `cloud/vast.sh offers` filters for that.
 
 ```bash
 # laptop, once

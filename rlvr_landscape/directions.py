@@ -159,7 +159,7 @@ def load_hf_model(
         AutoModelForCausalLM.from_pretrained(
             args.model_ckpt,
 
-            torch_dtype=(
+            dtype=(
                 torch.bfloat16
                 if args.dtype == "bfloat16"
                 else torch.float16

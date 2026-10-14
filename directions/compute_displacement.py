@@ -21,7 +21,7 @@ from transformers import AutoModelForCausalLM
 def load_state_dict(checkpoint: str) -> dict[str, torch.Tensor]:
     model = AutoModelForCausalLM.from_pretrained(
         checkpoint,
-        torch_dtype=torch.float32,
+        dtype=torch.float32,
         device_map="cpu",
     )
 

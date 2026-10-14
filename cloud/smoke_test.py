@@ -52,6 +52,12 @@ def make_direction(model_dir, path):
     for shard in sorted(Path(model_dir).glob("*.safetensors")):
         theta.update(load_file(str(shard)))
 
+    # A tied lm_head is the embedding itself, not a separate parameter
+    # (model.named_parameters() lists it once, as embed_tokens).
+    config = json.loads((Path(model_dir) / "config.json").read_text())
+    if config.get("tie_word_embeddings"):
+        theta.pop("lm_head.weight", None)
+
     generator = torch.Generator().manual_seed(0)
     direction = {
         name: torch.randn(t.shape, generator=generator, dtype=torch.float32)

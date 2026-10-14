@@ -37,7 +37,7 @@ case "${cmd}" in
     offers)
         gpu="${1:-H100_SXM}"; type="${2:-on-demand}"
         ${VAST} search offers \
-            "gpu_name=${gpu} num_gpus=1 reliability>0.98 cuda_vers>=12.8 inet_down>200 disk_space>=${DISK_GB}" \
+            "gpu_name=${gpu} num_gpus=1 reliability>0.98 cuda_vers>=13.0 inet_down>200 disk_space>=${DISK_GB}" \
             -t "${type}" --storage "${DISK_GB}" -o dph_total --limit 10
         ;;
     create)
