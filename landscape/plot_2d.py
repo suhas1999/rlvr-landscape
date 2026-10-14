@@ -36,7 +36,22 @@ def grid_from_csv(csv_path):
 
 
 def smooth(alphas, betas, z, n=121):
-    """Cubic spline through the grid (linear if the grid is too small), for rendering."""
+    """Cubic spline through the grid (linear if the grid is too small), for rendering.
+
+    A partial grid (run stopped early) is interpolated from the measured points only;
+    the unmeasured area outside them stays empty.
+    """
+    if np.isnan(z).any():
+        from scipy.interpolate import griddata
+
+        a, b = np.meshgrid(alphas, betas)
+        ok = ~np.isnan(z)
+        fa = np.linspace(alphas[0], alphas[-1], n)
+        fb = np.linspace(betas[0], betas[-1], n)
+        fa_grid, fb_grid = np.meshgrid(fa, fb)
+        fz = griddata((a[ok], b[ok]), z[ok], (fa_grid, fb_grid), method="cubic")
+        return fa, fb, np.clip(fz, 0.0, 1.0)
+
     k = 3 if min(len(alphas), len(betas)) >= 4 else 1
     spline = RectBivariateSpline(betas, alphas, z, kx=k, ky=k)
     fa = np.linspace(alphas[0], alphas[-1], n)
@@ -63,8 +78,10 @@ def plot_surface(fa, fb, fz, path, title):
     a, b = np.meshgrid(fa, fb)
     ls = LightSource(azdeg=315, altdeg=35)
     cmap = plt.get_cmap("coolwarm")
-    norm = plt.Normalize(fz.min(), fz.max())
-    rgb = ls.shade(fz, cmap=cmap, norm=norm, vert_exag=2.0, blend_mode="soft")
+    norm = plt.Normalize(np.nanmin(fz), np.nanmax(fz))
+    filled = np.where(np.isnan(fz), np.nanmin(fz), fz)
+    rgb = ls.shade(filled, cmap=cmap, norm=norm, vert_exag=2.0, blend_mode="soft")
+    fz = np.ma.masked_invalid(fz)
 
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(projection="3d")
