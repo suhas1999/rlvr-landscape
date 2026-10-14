@@ -48,11 +48,10 @@ source .venv/bin/activate
 python -c "import torch, vllm; print('torch', torch.__version__, 'cuda', torch.version.cuda, \
 '| vllm', vllm.__version__, '| GPU ok:', torch.cuda.is_available())"
 
-# ---- base model ----
-if [ ! -f "${BASE_MODEL}/config.json" ]; then
-    hf download Qwen/Qwen3-0.6B --local-dir "${BASE_MODEL}"
-fi
-mkdir -p "${CKPT_ROOT}"
+# ---- HF models ----
+[ -f "${BASE_MODEL}/config.json" ] || hf download Qwen/Qwen3-0.6B --local-dir "${BASE_MODEL}"
+[ -f "${PRETRAINED_MODEL}/config.json" ] || hf download Qwen/Qwen3-0.6B-Base --local-dir "${PRETRAINED_MODEL}"
+mkdir -p "${CKPT_ROOT}" "${WANDB_DIR}"
 
 # ---- shell convenience ----
 line="source ${REPO_ROOT}/cloud/env.sh && cd ${REPO_ROOT}"
@@ -60,4 +59,5 @@ grep -qxF "${line}" "${HOME}/.bashrc" 2>/dev/null || echo "${line}" >> "${HOME}/
 
 echo
 echo "Setup done. Next:"
-echo "  source cloud/env.sh && python -m cloud.smoke_test --model \${BASE_MODEL}"
+echo "  wandb login        # once"
+echo "  python -m cloud.smoke_test --model \${BASE_MODEL}"

@@ -27,6 +27,7 @@ rlvr_landscape/            shared library (imported by everything below)
   perturb.py               install a direction file in vLLM, set the coefficient
   grpo.py                  GRPO rollouts + policy-gradient direction
   directions.py            norms, scaling, saving, random directions
+  tracking.py              optional Weights & Biases logging
 
 train/grpo_math500.sh      GRPO training with ms-swift (group size / seed / data via env vars)
 
@@ -98,9 +99,10 @@ bash cloud/vast.sh push <INSTANCE_ID> path/to/checkpoint-50   # -> /workspace/ch
 
 # on the box
 source cloud/env.sh
+wandb login                                     # once; optional
 python -m cloud.smoke_test --model $BASE_MODEL  # vLLM + perturbation checks, prints tok/s
 export RLVR_ENFORCE_EAGER=0                     # only if the smoke test says graphs are safe
-MODEL_CKPT=$CKPT_ROOT/checkpoint-50 CHECKPOINT_STEP=50 bash scripts/landscape_random.sh
+bash scripts/landscape_random.sh                # MODEL_CKPT defaults to Qwen/Qwen3-0.6B
 
 # laptop: results back, then stop paying
 bash cloud/vast.sh pull <INSTANCE_ID>           # -> ./results/
@@ -112,6 +114,15 @@ stop/start or an interruptible pause does not reinstall anything. On a dedicated
 sets `GPU_MEMORY_UTILIZATION=0.85` (the launchers default to 0.25-0.3 for shared cluster
 GPUs). The launchers take `MODEL_CKPT`, `EVAL_JSON`, `DIRECTION_PATH`, `CHECKPOINT_STEP`,
 `GPU` and `GPU_MEMORY_UTILIZATION` from the environment.
+
+Setup downloads `Qwen/Qwen3-0.6B` (`$BASE_MODEL`) and `Qwen/Qwen3-0.6B-Base`
+(`$PRETRAINED_MODEL`); `cloud/env.sh` points `MODEL_CKPT` at the former. For a trained
+checkpoint, set `MODEL_CKPT=$CKPT_ROOT/... CHECKPOINT_STEP=...`.
+
+**W&B.** Landscapes log each α point live (`dir<k>/mean_reward` against `dir<k>/alpha`),
+then the results table, plots and CSVs as an artifact; `eval_math500.py` logs its summary
+and predictions. Project: `$WANDB_PROJECT` (default `rlvr-landscape`). With no key or
+`WANDB_MODE=disabled`, logging is skipped.
 
 `RLVR_ENFORCE_EAGER` controls the engines built by `create_vllm` (SGD / displacement
 landscapes). Weights are updated with an in-place `copy_`, so CUDA graphs should stay

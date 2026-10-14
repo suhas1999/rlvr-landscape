@@ -40,6 +40,7 @@ from rlvr_landscape.directions import (
 from rlvr_landscape.grpo import compute_group_advantages, compute_grpo_gradient, vllm_grpo_rollout
 from rlvr_landscape.perturb import install_direction_on_vllm, set_vllm_coefficient
 from rlvr_landscape.tasks import load_eval_data
+from rlvr_landscape.tracking import finish_run, init_run, log_point
 from rlvr_landscape.vllm_utils import cleanup_cuda, create_vllm, vllm_eval_reward
 
 
@@ -289,6 +290,12 @@ def main():
     )
 
     args = parser.parse_args()
+
+    wandb_run = init_run(
+        args,
+        job_type=f"landscape-{args.direction_type}",
+        name=f"{args.direction_type}_{args.model_name}_step{args.checkpoint_step}",
+    )
 
     if args.direction_type == "displacement" and args.direction_path is None:
         parser.error("--direction-type displacement requires --direction-path")
@@ -816,6 +823,7 @@ def main():
                 }
                 direction_results.append(row)
                 all_results.append(row)
+                log_point(wandb_run, row, direction_idx)
 
                 for record in generation_records:
                     all_generation_records.append(
@@ -979,6 +987,8 @@ def main():
         relative=True,
         filename=f"{stem}_relative_reward_generation_mean_se.png",
     )
+
+    finish_run(wandb_run, output_dir.glob(f"*{stem}*"), results_df=df)
 
     # plot_landscape(
     #     "prompt_mean_se",

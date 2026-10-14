@@ -20,8 +20,18 @@ export GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
 # Set to 0 after cloud/smoke_test.py passes "graph sees the weight update".
 export RLVR_ENFORCE_EAGER="${RLVR_ENFORCE_EAGER:-1}"
 
-export BASE_MODEL="${WORK}/models/Qwen3-0.6B"
+export BASE_MODEL="${WORK}/models/Qwen3-0.6B"            # Qwen/Qwen3-0.6B (post-trained, run non-thinking)
+export PRETRAINED_MODEL="${WORK}/models/Qwen3-0.6B-Base"  # Qwen/Qwen3-0.6B-Base (pretrain only)
 export CKPT_ROOT="${WORK}/checkpoints"
+
+# Launcher defaults: the HF model instead of the cluster checkpoints.
+export MODEL_CKPT="${MODEL_CKPT:-${BASE_MODEL}}"
+export CHECKPOINT_STEP="${CHECKPOINT_STEP:-0}"
+
+# Weights & Biases: run `wandb login` once on the box (key goes to ~/.netrc).
+# Without a key the scripts still run and just skip logging.
+export WANDB_PROJECT="${WANDB_PROJECT:-rlvr-landscape}"
+export WANDB_DIR="${WORK}/wandb"
 
 if [ -f "${REPO_ROOT}/.venv/bin/activate" ]; then
     source "${REPO_ROOT}/.venv/bin/activate"

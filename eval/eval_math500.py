@@ -28,6 +28,7 @@ from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 
 from rlvr_landscape.grading.grader import grade_answer
+from rlvr_landscape.tracking import finish_run, init_run
 
 
 DEFAULT_SUFFIX = (
@@ -448,6 +449,12 @@ def format_prompt(
 def main() -> None:
 
     cfg = parse_args()
+
+    wandb_run = init_run(
+        cfg,
+        job_type="eval-math500",
+        name=f"eval_{cfg.model_name}",
+    )
 
     # ========================================================
     # Seeds
@@ -1044,6 +1051,16 @@ def main() -> None:
         )
 
         summary_file.write("\n")
+
+    finish_run(
+        wandb_run,
+        [output_path, summary_path],
+        summary={
+            key: value
+            for key, value in summary.items()
+            if isinstance(value, (int, float, str, bool))
+        },
+    )
 
 
     # ========================================================

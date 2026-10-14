@@ -28,6 +28,7 @@ import torch
 from vllm import LLM, SamplingParams
 
 from rlvr_landscape.tasks import load_eval_data, select_reward_func
+from rlvr_landscape.tracking import finish_run, init_run, log_point
 from rlvr_landscape.tasks.chess_single_turn import (
     chess_single_turn_move_to_uci,
     extract_chess_single_turn_move,
@@ -1042,6 +1043,12 @@ def main() -> None:
     if args.direction_seed is None:
         args.direction_seed = args.seed
 
+    wandb_run = init_run(
+        args,
+        job_type="landscape-random",
+        name=f"random_{args.task}_{args.model_name}_step{args.checkpoint_step}",
+    )
+
     if args.num_points < 1:
         raise ValueError(
             "--num-points must be positive"
@@ -1432,6 +1439,8 @@ def main() -> None:
                 }
             )
 
+            log_point(wandb_run, rows[-1], direction_index)
+
             for record in generation_records:
 
                 generation_rows.append(
@@ -1530,6 +1539,13 @@ def main() -> None:
             result_df,
             generation_df,
             args,
+        )
+
+        stem = build_output_stem(args)
+        finish_run(
+            wandb_run,
+            Path(args.output_dir).glob(f"*{stem}*"),
+            results_df=result_df,
         )
 
     print(
