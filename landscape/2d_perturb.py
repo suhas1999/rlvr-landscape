@@ -87,6 +87,8 @@ def parse_args():
     p.add_argument("--probe-start", type=float, default=0.002)
     p.add_argument("--probe-threshold", type=float, default=0.15)
     p.add_argument("--range-factor", type=float, default=1.7)
+    p.add_argument("--probe-confirm", type=int, default=2,
+                   help="Consecutive probe points below the threshold needed to stop.")
     p.add_argument("--dir-seeds", type=int, nargs=2, default=[0, 1])
     p.add_argument("--dtype", default="float32", choices=["float32", "bfloat16"])
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
@@ -140,17 +142,20 @@ def mean_reward(rows):
 
 
 def auto_range(llm, prompts, data, sampling, args, probe_path):
-    """Walk (alpha, 0) up by sqrt(2) until reward < threshold x centre; range = factor x alpha."""
+    """Walk (alpha, 0) up by sqrt(2) until reward < threshold x centre on probe_confirm
+    consecutive points; range = factor x the first of them."""
     centre = mean_reward(run_point(llm, prompts, data, sampling, args, 0.0, 0.0)[1])
     probe = [{"alpha": 0.0, "reward": centre}]
     print(f"[probe] alpha=0 reward={centre:.3f}", flush=True)
-    alpha = args.probe_start
+    alpha, below = args.probe_start, []
     while alpha < 100:
         reward = mean_reward(run_point(llm, prompts, data, sampling, args, alpha, 0.0)[1])
         probe.append({"alpha": alpha, "reward": reward})
         pd.DataFrame(probe).to_csv(probe_path, index=False)
         print(f"[probe] alpha={alpha:.4g} reward={reward:.3f}", flush=True)
-        if reward <= args.probe_threshold * centre:
+        below = below + [alpha] if reward <= args.probe_threshold * centre else []
+        if len(below) >= args.probe_confirm:
+            alpha = below[0]
             value = args.range_factor * alpha
             digits = 1 - int(math.floor(math.log10(value)))  # two significant figures
             return round(value, digits), alpha
