@@ -31,6 +31,10 @@ bash cloud/vast.sh offers A100_SXM4          # or A100_PCIE, H100_SXM
 - One GPU. The code is single-GPU; 4 GPUs only help for independent parallel jobs.
 - If setup is slow, test the network early (`git clone` taking minutes = bad box). Destroy and pick
   another rather than waiting. A California box in Oct 2026 had ~230KB/s and could not clone.
+  Advertised Net_down is not reliable: a Georgia A100 40GB (machine 117301) listed 1650 Mbps
+  but downloaded at ~1 MB/s. Quick check on the box:
+  `a=$(awk '/eth0/{print $2}' /proc/net/dev); sleep 10; b=$(awk '/eth0/{print $2}' /proc/net/dev); echo $(( (b-a)/10000000 )) MB/s`
+  Normal setup (uv sync + model) takes 2-5 min; still downloading after ~5 min = drop the box.
 
 ## Lifecycle
 
