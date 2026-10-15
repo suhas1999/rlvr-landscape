@@ -17,6 +17,7 @@ dependencies = [
     "wandb",
     "plotly",
     "scipy",
+    "trl==1.15.0",
 ]
 
 [tool.uv]

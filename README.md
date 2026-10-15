@@ -29,7 +29,9 @@ rlvr_landscape/            shared library (imported by everything below)
   directions.py            norms, scaling, saving, random directions
   tracking.py              optional Weights & Biases logging
 
-train/grpo_math500.sh      GRPO training with ms-swift (group size / seed / data via env vars)
+train/                     GRPO training
+  grpo_trl.sh / grpo_trl.py  TRL; vLLM rollouts and training on separate GPUs (or one shared GPU)
+  grpo_math500.sh            the original ms-swift runs (needs an ms-swift checkout)
 
 directions/                build direction files (.pt)
   compute_sgd_direction.py   -∇ GRPO loss at a checkpoint (raw, not normalized)
@@ -54,9 +56,8 @@ chess_llm/                 small chess-LLM checkpoint used by the legacy chess r
 ## Workflow
 
 ```bash
-# 1. Train (needs ms-swift checkout at SWIFT_DIR)
-export SWANLAB_API_KEY=...
-GROUP_SIZE=4 SEED=42 TRAIN_NAME=train1 bash train/grpo_math500.sh
+# 1. Train (TRL; see "Training" below for the GPU split)
+GROUP_SIZE=4 SEED=42 TRAIN_NAME=train1 bash train/grpo_trl.sh
 
 # 2a. Random-direction landscape
 bash scripts/landscape_random.sh
@@ -75,6 +76,41 @@ python -m eval.eval_math500 --model-path .../checkpoint-50 --model-name step50 \
     --data-path train_data/math500/train.jsonl --temperature 0 --max-new-tokens 2048
 ```
 
+## Training
+
+`train/grpo_trl.sh` runs GRPO with TRL's `GRPOTrainer`. A `trl vllm-serve` process generates
+rollouts on its own GPUs and the trainer (accelerate, DDP) runs on the rest; after every
+optimizer step the trainer pushes the new weights to vLLM over NCCL, so rollouts stay
+on-policy. The split is set with env vars:
+
+| env var | meaning | default |
+|---|---|---|
+| `GPUS` | GPUs to use (indices or UUIDs) | `$GPU_UUIDS`, else `$CUDA_VISIBLE_DEVICES`, else all |
+| `ROLLOUT_GPUS` | how many of them (the first ones) serve vLLM; `0` = colocate vLLM in the trainer | 1 if ≥ 2 GPUs, else 0 |
+| `ROLLOUT_TP` | tensor-parallel size per vLLM replica (`ROLLOUT_GPUS/ROLLOUT_TP` replicas) | 1 |
+
+```bash
+GPUS=0 bash train/grpo_trl.sh                          # 1 GPU, colocated
+GPUS=0,1,2,3 ROLLOUT_GPUS=2 bash train/grpo_trl.sh     # 2 rollout replicas + 2 training GPUs
+GROUP_SIZE=16 PROMPTS_PER_STEP=4 TRAIN_NAME=train8 bash train/grpo_trl.sh --beta 0 --save_steps 1
+```
+
+Defaults match the ms-swift runs (`loss_type grpo`, β = 0.04, lr 5e-6 constant after 5% warmup,
+T = 0.7 / top-p 0.8 / top-k 20, 2048 completion tokens, non-thinking template). One optimizer
+step uses `PROMPTS_PER_STEP × GROUP_SIZE` completions, split across the training GPUs. Extra
+arguments go to `train/grpo_trl.py`; any `GRPOConfig` field (`--beta`, `--loss_type`,
+`--save_steps`, `--report_to`, ...) can be overridden there.
+
+Reward and prompt are the same as in the landscape tools and eval (`rlvr_landscape.tasks.math500`).
+The "reason step by step ... \boxed{}" suffix is only appended when the problem does not already
+ask for `\boxed` (the repo's train/test files do; the raw HF `test/test_500.jsonl` does not).
+Output (`$CKPT_ROOT` or the repo root, `output_qwen3_0.6b_grpo_trl_<run>/`):
+- `checkpoint-N/` every `SAVE_STEPS` (fp32, so `compute_displacement` sees the exact update)
+- `rollouts/{train,val}_stepN_rankR.jsonl.gz`: every completion, its reward and extracted
+  answer, sampled from the weights of `checkpoint-N`
+- `train.log`, `vllm_server.log`; metrics (reward mean/std, KL, entropy, lengths) go to
+  wandb when a key is configured
+
 ## AICS cluster (Slurm)
 
 `cluster/` is the counterpart of `cloud/` for the AICS cluster. Venv, uv/HF/vLLM caches,
@@ -86,6 +122,7 @@ bash cluster/setup.sh             # once: uv sync --frozen + Qwen3-0.6B{,-Base} 
 source cluster/env.sh             # every shell; GPU_INDEX=N picks the N-th *allocated* GPU
 bash cluster/eval_math500.sh      # MATH500 on Qwen3-0.6B-Base -> $WORK/results/rlvr-landscape/
 sbatch cluster/eval_math500.sh $BASE_MODEL   # same, as a batch job (logs in $WORK/logs/)
+sbatch cluster/train_grpo.sh      # GRPO on 2 GPUs (1 rollout + 1 train); --gres=gpu:N for more
 ```
 
 `env.sh` pins the GPU by UUID: on csrtx6000-2 one unallocated GPU leaks past Slurm's cgroup,
