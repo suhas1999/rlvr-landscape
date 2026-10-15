@@ -13,6 +13,22 @@ DEFAULT_SUFFIX = (
 )
 
 
+def add_answer_instruction(
+    problem: str,
+) -> str:
+    """
+    Append DEFAULT_SUFFIX unless the problem already asks for \\boxed{}.
+
+    The repo's train/test files already end with their own boxed instruction;
+    the raw HF MATH500 file (test/test_500.jsonl) has none.
+    """
+
+    if "boxed" in problem:
+        return problem
+
+    return problem + DEFAULT_SUFFIX
+
+
 def load_math500_example(
     example: dict[str, Any],
 ) -> dict[str, Any]:
@@ -69,13 +85,12 @@ def build_prompt_text(
     example,
 ):
     """
-    EXACTLY equivalent to format_prompt()
-    in eval_math500_displacement.py.
+    Same prompt as format_prompt() in eval/eval_math500.py
+    and the training prompt in train/grpo_trl.py.
     """
 
-    content = (
+    content = add_answer_instruction(
         example["prompt"]
-        + DEFAULT_SUFFIX
     )
 
     return tokenizer.apply_chat_template(

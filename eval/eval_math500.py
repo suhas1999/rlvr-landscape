@@ -28,13 +28,8 @@ from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
 
 from rlvr_landscape.grading.grader import grade_answer
+from rlvr_landscape.tasks.math500 import add_answer_instruction
 from rlvr_landscape.tracking import finish_run, init_run
-
-
-DEFAULT_SUFFIX = (
-    "\nPlease reason step by step, and put your final answer within "
-    r"\boxed{}."
-)
 
 
 # ============================================================
@@ -412,9 +407,8 @@ def format_prompt(
     cfg: argparse.Namespace,
 ) -> str:
 
-    content = (
+    content = add_answer_instruction(
         problem
-        + DEFAULT_SUFFIX
     )
 
     # --------------------------------------------------------
