@@ -83,15 +83,22 @@ def load_math500_example(
 def build_prompt_text(
     tokenizer,
     example,
+    force_suffix: bool = False,
 ):
     """
     Same prompt as format_prompt() in eval/eval_math500.py
     and the training prompt in train/grpo_trl.py.
+
+    force_suffix=True appends DEFAULT_SUFFIX even when the problem already
+    has its own boxed instruction (the prompt used before 4c077dc).
     """
 
-    content = add_answer_instruction(
-        example["prompt"]
-    )
+    if force_suffix:
+        content = example["prompt"] + DEFAULT_SUFFIX
+    else:
+        content = add_answer_instruction(
+            example["prompt"]
+        )
 
     return tokenizer.apply_chat_template(
         [

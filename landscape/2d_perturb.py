@@ -10,6 +10,7 @@
     raw_nonqk   raw theta, filter-normalized, every norm except q_norm/k_norm perturbed
     raw_global  raw theta, one Gaussian over all params with ||d|| = ||theta|| (no normalization)
     raw_global_nonqk  raw_global with q_norm/k_norm entries zeroed (same draw otherwise)
+    raw_global_none   raw_global with every norm entry zeroed (same draw otherwise)
 
 --grid-range 0 (default) picks the range automatically: probe (alpha, 0) for growing alpha
 until the reward falls below --probe-threshold x the centre reward, then use
@@ -66,6 +67,7 @@ VARIANTS = {
     "raw_nonqk": (False, "filter", "nonqk"),
     "raw_global": (False, "global", "all"),
     "raw_global_nonqk": (False, "global", "nonqk"),
+    "raw_global_none": (False, "global", "none"),
 }
 
 
@@ -75,6 +77,9 @@ def parse_args():
     p.add_argument("--model-name", default="qwen3_0.6b")
     p.add_argument("--variant", default="canon_qkn", choices=list(VARIANTS))
     p.add_argument("--eval-json", default=str(REPO_ROOT / "train_data/math500/test.jsonl"))
+    p.add_argument("--double-suffix", action="store_true",
+                   help="Append the boxed suffix even when the problem has its own (prompt "
+                        "of the first six variant runs).")
     p.add_argument("--num-prompts", type=int, default=8)
     p.add_argument("--prompt-seed", type=int, default=0)
     p.add_argument("--group-size", type=int, default=4)
@@ -236,7 +241,7 @@ def main():
             from transformers import AutoTokenizer
 
             tok = AutoTokenizer.from_pretrained(args.model_ckpt)
-            token_lists = [tok(build_prompt_text(tok, ex))["input_ids"] for ex in data[:8]]
+            token_lists = [tok(build_prompt_text(tok, ex, args.double_suffix))["input_ids"] for ex in data[:8]]
             before, after = check_function_preserved(args.model_ckpt, base, token_lists)
             print(f"[canonicalize] NLL before {before:.7f} after {after:.7f} "
                   f"|diff| {abs(before - after):.2e}", flush=True)
@@ -262,7 +267,7 @@ def main():
         seed=args.sample_seed,
     )
     tokenizer = llm.get_tokenizer()
-    prompts = [build_prompt_text(tokenizer, ex) for ex in data]
+    prompts = [build_prompt_text(tokenizer, ex, args.double_suffix) for ex in data]
 
     # Mapping check: the installed base at (0, 0) must give the original model's outputs.
     lp_original = prompt_logprobs(llm, prompts[:8])
