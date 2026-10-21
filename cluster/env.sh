@@ -22,6 +22,23 @@ export VLLM_ALLOW_INSECURE_SERIALIZATION=1
 # Stream prints into sbatch / nohup logs instead of block-buffering them.
 export PYTHONUNBUFFERED=1
 
+# ---- NVML / driver mismatch ----
+# Driver packages upgraded without a reboot leave the old kernel module loaded, so the new
+# libnvidia-ml fails ("Driver/library version mismatch"): nvidia-smi, vLLM platform detection
+# and NCCL all break while CUDA still works. Use an NVML matching the kernel module instead
+# (bash cluster/fetch_nvml.sh downloads it).
+if ! nvidia-smi -L >/dev/null 2>&1; then
+    _drv="$(sed -nE 's/.*Kernel Module( for x86_64)?[[:space:]]+([0-9.]+).*/\2/p' /proc/driver/nvidia/version 2>/dev/null)"
+    if [ -n "${_drv}" ] && [ -f "${WORK}/nvidia-${_drv}/lib/libnvidia-ml.so.1" ]; then
+        export LD_LIBRARY_PATH="${WORK}/nvidia-${_drv}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        export PATH="${WORK}/nvidia-${_drv}/bin:${PATH}"
+        echo "cluster/env.sh: NVML broken; using driver-matched NVML ${_drv} from ${WORK}/nvidia-${_drv}" >&2
+    else
+        echo "cluster/env.sh: nvidia-smi/NVML fails (driver ${_drv:-?}); run: bash cluster/fetch_nvml.sh" >&2
+    fi
+    unset _drv
+fi
+
 # ---- GPU pinning ----
 # On csrtx6000-2 one GPU (/dev/nvidia7) is missing from gres.conf, so Slurm's cgroup does not
 # hide it: plain indices (CUDA_VISIBLE_DEVICES=1) can land on a GPU you were not allocated.
