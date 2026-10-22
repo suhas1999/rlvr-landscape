@@ -23,6 +23,7 @@
 # Run settings: MODEL, TRAIN_NAME (train1 -> train_data/math500/train_1.jsonl) or TRAIN_DATA,
 # VAL_DATA ("" disables eval), GROUP_SIZE, PROMPTS_PER_STEP, MAX_STEPS, LR, MAX_LEN, SEED,
 # SAVE_STEPS, EVAL_STEPS, VLLM_MEM, VLLM_MAX_MODEL_LEN, OUTPUT_ROOT, RUN_NAME.
+# Full fp32 (training and rollouts): MIXED_PRECISION=no VLLM_DTYPE=float32 ... --bf16 false
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -102,6 +103,7 @@ if (( ROLLOUT_GPUS > 0 )); then
         --port "${VLLM_PORT}" \
         --gpu_memory_utilization "${VLLM_MEM:-0.85}" \
         --max_model_len "${VLLM_MAX_MODEL_LEN}" \
+        --dtype "${VLLM_DTYPE:-auto}" \
         ${EAGER_ARGS[@]+"${EAGER_ARGS[@]}"} \
         > "${OUTPUT_DIR}/vllm_server.log" 2>&1 &
     SERVER_PID=$!
@@ -135,7 +137,7 @@ CUDA_VISIBLE_DEVICES="${TRAIN_GPU_LIST}" accelerate launch \
     --num_processes "${NUM_TRAIN}" \
     --num_machines 1 \
     ${MULTI_GPU[@]+"${MULTI_GPU[@]}"} \
-    --mixed_precision bf16 \
+    --mixed_precision "${MIXED_PRECISION:-bf16}" \
     --dynamo_backend no \
     --main_process_port "$(free_port)" \
     train/grpo_trl.py \

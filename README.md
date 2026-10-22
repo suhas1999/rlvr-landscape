@@ -96,7 +96,10 @@ GROUP_SIZE=16 PROMPTS_PER_STEP=4 TRAIN_NAME=train8 bash train/grpo_trl.sh --beta
 ```
 
 Defaults match the ms-swift runs (`loss_type grpo`, β = 0.04, lr 5e-6 constant after 5% warmup,
-T = 0.7 / top-p 0.8 / top-k 20, 2048 completion tokens, non-thinking template). One optimizer
+T = 0.7, 2048 completion tokens, non-thinking template) except for sampling: no top-p / top-k,
+with per-token IS correction (`token_truncate`). With top-p 0.8 / top-k 20, TRL's default
+sequence-level IS weights each completion by ~0.01 and training stalls; see the
+`train/grpo_trl.py` docstring. `sampling/importance_sampling_ratio/mean` should stay near 1. One optimizer
 step uses `PROMPTS_PER_STEP × GROUP_SIZE` completions, split across the training GPUs. Extra
 arguments go to `train/grpo_trl.py`; any `GRPOConfig` field (`--beta`, `--loss_type`,
 `--save_steps`, `--report_to`, ...) can be overridden there.
@@ -120,7 +123,7 @@ models and results live on `/scratch/micah/$USER` (`$WORK`), not the NFS `$HOME`
 srun -p micah --gres=gpu:1 --cpus-per-task=16 --mem=128G --pty bash   # or use an existing job
 bash cluster/setup.sh             # once: uv sync --frozen + Qwen3-0.6B{,-Base} into $WORK/models
 source cluster/env.sh             # every shell; GPU_INDEX=N picks the N-th *allocated* GPU
-bash cluster/eval_math500.sh      # MATH500 on Qwen3-0.6B-Base -> $WORK/results/rlvr-landscape/
+bash cluster/eval_math500.sh      # MATH500 on Qwen3-0.6B-Base -> results/math500_eval/
 sbatch cluster/eval_math500.sh $BASE_MODEL   # same, as a batch job (logs in $WORK/logs/)
 sbatch cluster/train_grpo.sh      # GRPO on 2 GPUs (1 rollout + 1 train); --gres=gpu:N for more
 ```

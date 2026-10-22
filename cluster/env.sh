@@ -82,7 +82,7 @@ export MODELS_DIR="${WORK}/models"
 export BASE_MODEL="${MODELS_DIR}/Qwen3-0.6B"            # Qwen/Qwen3-0.6B (post-trained, run non-thinking)
 export PRETRAINED_MODEL="${MODELS_DIR}/Qwen3-0.6B-Base"  # Qwen/Qwen3-0.6B-Base (pretrain only)
 export CKPT_ROOT="${WORK}/checkpoints"
-export RESULTS_DIR="${WORK}/results/rlvr-landscape"
+export RESULTS_DIR="${REPO_ROOT}/results"  # git-ignored; checkpoints stay in $CKPT_ROOT
 
 export MODEL_CKPT="${MODEL_CKPT:-${BASE_MODEL}}"
 export CHECKPOINT_STEP="${CHECKPOINT_STEP:-0}"

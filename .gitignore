@@ -10,3 +10,6 @@ param_displace*/
 output_*/
 *.log
 results/
+
+# HF datasets cache files
+train_data/**/cache-*.arrow

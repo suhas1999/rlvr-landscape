@@ -52,7 +52,7 @@ def finish_run(run, files, results_df=None, summary=None):
         return
     import wandb
 
-    files = sorted(Path(f) for f in files)
+    files = sorted(Path(f) for f in files if Path(f).is_file())  # globs also match rollout dirs
     if results_df is not None:
         run.log({"results": wandb.Table(dataframe=results_df)})
     if summary:

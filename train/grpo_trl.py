@@ -5,8 +5,15 @@ rollouts and training on separate GPUs (or shares one GPU) and starts this scrip
 accelerate.
 
 Defaults follow the ms-swift runs of train/grpo_math500.sh: loss_type grpo, beta 0.04,
-lr 5e-6 constant with 5% warmup, T=0.7 / top_p 0.8 / top_k 20, 2048 completion tokens,
-one prompt x GROUP_SIZE completions per optimizer step, non-thinking chat template.
+lr 5e-6 constant with 5% warmup, T=0.7, 2048 completion tokens, one prompt x GROUP_SIZE
+completions per optimizer step, non-thinking chat template.
+
+Unlike ms-swift, rollouts use no top_p / top_k. vLLM reports logprobs after top-k/top-p
+renormalization while the trainer scores tokens with temperature only; with top_p 0.8 /
+top_k 20 the per-token gap is ~0.03, and TRL's default sequence-level IS correction
+(exp of the summed gap) then weights every completion by ~0.01, so the policy barely moves.
+Without truncation the gap is ~0.01 (bf16 vLLM vs fp32 trainer), corrected per token
+(token_truncate). Watch sampling/importance_sampling_ratio/mean: it should stay near 1.
 
 Reward and prompt are the ones the landscape tools use (rlvr_landscape.tasks.math500), so
 training reward and landscape reward are the same function. Every rollout is saved to
@@ -137,8 +144,9 @@ def parse_args():
         scale_rewards="group",
         num_iterations=1,
         temperature=0.7,
-        top_p=0.8,
-        top_k=20,
+        top_p=1.0,
+        top_k=0,
+        vllm_importance_sampling_mode="token_truncate",
         max_completion_length=2048,
         chat_template_kwargs={"enable_thinking": False},
         use_vllm=True,
