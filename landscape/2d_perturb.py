@@ -77,6 +77,10 @@ def parse_args():
     p.add_argument("--eval-json", default=str(REPO_ROOT / "train_data/math500/test.jsonl"))
     p.add_argument("--num-prompts", type=int, default=8)
     p.add_argument("--prompt-seed", type=int, default=0)
+    p.add_argument("--resample-prompts", action="store_true",
+                   help="Draw a fresh set of --num-prompts prompts from --eval-json at every grid "
+                        "(and probe) point, seeded by (prompt-seed, alpha, beta). Default: one "
+                        "fixed set for all points.")
     p.add_argument("--group-size", type=int, default=4)
     p.add_argument("--num-repeats", type=int, default=1)
     p.add_argument("--sample-seed", type=int, default=1234)
@@ -120,9 +124,29 @@ def prompt_logprobs(llm, texts):
     return np.array(values)
 
 
-def run_point(llm, prompts, data, sampling, args, alpha, beta):
-    """Set theta + alpha*d1 + beta*d2, sample, and score. Returns (outputs, rows)."""
+class PromptPool:
+    """The prompts scored at a grid point: one fixed sample, or (resample=True) a fresh sample
+    per point seeded by (seed, alpha, beta), so a resumed run and another model evaluated at the
+    same point see the same prompts."""
+
+    def __init__(self, pool, tokenizer, num_prompts, seed, resample):
+        self.pool, self.tokenizer = pool, tokenizer
+        self.num_prompts, self.seed, self.resample = num_prompts, seed, resample
+        self.fixed = random.Random(seed).sample(pool, num_prompts)
+
+    def at(self, alpha, beta):
+        data = self.fixed
+        if self.resample:
+            a, b = float(alpha) + 0.0, float(beta) + 0.0  # -0.0 -> 0.0
+            rng = random.Random(f"{self.seed}:{a:+.8f}:{b:+.8f}")
+            data = rng.sample(self.pool, self.num_prompts)
+        return data, [build_prompt_text(self.tokenizer, ex) for ex in data]
+
+
+def run_point(llm, pool, sampling, args, alpha, beta):
+    """Set theta + alpha*d1 + beta*d2, sample, and score. Returns (outputs, rows, data)."""
     set_plane_point(llm, [alpha, beta])
+    data, prompts = pool.at(alpha, beta)
     outputs = llm.generate(prompts, sampling, use_tqdm=False)
     rows = []
     for r in range(args.num_repeats):
@@ -139,22 +163,22 @@ def run_point(llm, prompts, data, sampling, args, alpha, beta):
             "truncated_frac": truncated / len(lengths),
             "n": len(rewards),
         })
-    return outputs, rows
+    return outputs, rows, data
 
 
 def mean_reward(rows):
     return float(np.mean([row["reward"] for row in rows]))
 
 
-def auto_range(llm, prompts, data, sampling, args, probe_path):
+def auto_range(llm, pool, sampling, args, probe_path):
     """Walk (alpha, 0) up by sqrt(2) until reward < threshold x centre on probe_confirm
     consecutive points; range = factor x the first of them."""
-    centre = mean_reward(run_point(llm, prompts, data, sampling, args, 0.0, 0.0)[1])
+    centre = mean_reward(run_point(llm, pool, sampling, args, 0.0, 0.0)[1])
     probe = [{"alpha": 0.0, "reward": centre}]
     print(f"[probe] alpha=0 reward={centre:.3f}", flush=True)
     alpha, below = args.probe_start, []
     while alpha < 100:
-        reward = mean_reward(run_point(llm, prompts, data, sampling, args, alpha, 0.0)[1])
+        reward = mean_reward(run_point(llm, pool, sampling, args, alpha, 0.0)[1])
         probe.append({"alpha": alpha, "reward": reward})
         pd.DataFrame(probe).to_csv(probe_path, index=False)
         print(f"[probe] alpha={alpha:.4g} reward={reward:.3f}", flush=True)
@@ -218,11 +242,11 @@ def main():
     prefix = (f"{args.model_name}_reward2d_{args.variant}_{args.dtype}_seeds{args.dir_seeds[0]}-"
               f"{args.dir_seeds[1]}")
     suffix = (f"_n{args.grid_points}_p{args.num_prompts}_g{args.group_size}x{args.num_repeats}"
-              f"_tok{args.max_new_tokens}")
+              f"_tok{args.max_new_tokens}{'_resample' if args.resample_prompts else ''}")
 
     # ---------------- data ----------------
-    data = load_eval_data(args.eval_json, 10**9, "math500")
-    data = random.Random(args.prompt_seed).sample(data, args.num_prompts)
+    pool_data = load_eval_data(args.eval_json, 10**9, "math500")
+    data = random.Random(args.prompt_seed).sample(pool_data, args.num_prompts)  # checks below
 
     # ---------------- base + directions (fp32, CPU) ----------------
     canon_tag = "canon" if do_canon else "raw"
@@ -262,6 +286,8 @@ def main():
         seed=args.sample_seed,
     )
     tokenizer = llm.get_tokenizer()
+    pool = PromptPool(pool_data, tokenizer, args.num_prompts, args.prompt_seed,
+                      args.resample_prompts)
     prompts = [build_prompt_text(tokenizer, ex) for ex in data]
 
     # Mapping check: the installed base at (0, 0) must give the original model's outputs.
@@ -289,7 +315,7 @@ def main():
         grid_range = json.loads(range_path.read_text())["grid_range"]
         print(f"[probe] reusing grid range {grid_range} from {range_path}", flush=True)
     elif grid_range <= 0:
-        grid_range, alpha_drop = auto_range(llm, prompts, data, sampling, args,
+        grid_range, alpha_drop = auto_range(llm, pool, sampling, args,
                                             out_dir / f"{prefix}{suffix}_probe.csv")
         range_path.write_text(json.dumps({"grid_range": grid_range, "alpha_drop": alpha_drop}))
         print(f"[probe] reward dropped at alpha={alpha_drop:.4g}; grid range {grid_range}",
@@ -319,9 +345,9 @@ def main():
     t_start = time.time()
     for k, (alpha, beta) in enumerate(todo):
         t0 = time.time()
-        outputs, rows = run_point(llm, prompts, data, sampling, args, alpha, beta)
+        outputs, rows, point_data = run_point(llm, pool, sampling, args, alpha, beta)
         if args.rollouts_per_prompt:
-            save_rollouts(rollout_dir / f"a{alpha:+.6g}_b{beta:+.6g}.jsonl.gz", data, outputs,
+            save_rollouts(rollout_dir / f"a{alpha:+.6g}_b{beta:+.6g}.jsonl.gz", point_data, outputs,
                           alpha, beta, args.group_size, args.rollouts_per_prompt)
         pd.DataFrame(rows).to_csv(csv_path, mode="a", header=not csv_path.exists(), index=False)
 
