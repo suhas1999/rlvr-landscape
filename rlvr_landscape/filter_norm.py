@@ -162,6 +162,21 @@ def global_direction(params, seed, perturb_norms="all"):
             for name, d in direction.items()}
 
 
+def unit_direction(params, seed, norms_only=False):
+    """Plain Gaussian over every parameter (norms included), rescaled so ||d|| = 1.
+
+    No canonicalization or filter normalization: alpha along it is the Euclidean distance
+    moved in weight space. norms_only=True puts the whole direction on the RMSNorm gains
+    (what a vLLM `if not p.requires_grad: continue` loop perturbs; everything else is zero).
+    """
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    direction = {name: torch.randn(w.shape, generator=generator, dtype=torch.float32)
+                 if not norms_only or "norm" in name else torch.zeros(w.shape)
+                 for name, w in params.items()}
+    d_norm = float(torch.sqrt(sum((d.double() ** 2).sum() for d in direction.values())))
+    return {name: d / d_norm for name, d in direction.items()}
+
+
 @torch.no_grad()
 def mean_nll(model, token_lists, device):
     total, count = 0.0, 0

@@ -2,7 +2,8 @@
 
 The basin is the set of points around theta whose reward stays above a threshold. Along each
 random direction d_k (filter-normalized on the canonicalized checkpoint, the --variant canon
-directions of landscape/2d_perturb.py), the reward R(alpha) = R(theta + alpha * d_k) is swept
+directions of landscape/2d_perturb.py; or, with --direction unit, a plain Gaussian over every raw
+parameter with ||d_k|| = 1, so alpha is weight-space distance), the reward R(alpha) = R(theta + alpha * d_k) is swept
 outward in steps of --alpha-step until it falls below --stop-frac x R(0). The radius r_k(tau) is
 the first crossing of the threshold tau (linear interpolation), computed later by
 landscape/basin_volume.py for several thresholds from the same sweep.
@@ -42,6 +43,7 @@ from rlvr_landscape.filter_norm import (  # noqa: E402
     install_plane,
     load_fp32_params,
     set_plane_point,
+    unit_direction,
 )
 from rlvr_landscape.tasks import load_eval_data  # noqa: E402
 from rlvr_landscape.tasks.math500 import build_prompt_text, math500_reward_func  # noqa: E402
@@ -61,14 +63,28 @@ def parse_args():
     p.add_argument("--top-p", type=float, default=0.8)
     p.add_argument("--top-k", type=int, default=20)
     p.add_argument("--dir-seeds", type=int, nargs="+", default=list(range(8)))
+    p.add_argument("--direction", choices=["filter", "unit", "unit_norms", "files"], default="filter",
+                   help="filter: filter-normalized on the canonicalized checkpoint. unit: plain "
+                        "Gaussian over every raw parameter with ||d|| = 1 (alpha = weight-space distance). "
+                        "unit_norms: the same, on the RMSNorm gains only. files: --direction-files.")
+    p.add_argument("--direction-files", nargs="+", default=None,
+                   help="With --direction files: unit directions saved as {HF param name: tensor} "
+                        "(e.g. by reward_hessian.py); dir_seed in the CSV is the file index.")
+    p.add_argument("--signed", action="store_true",
+                   help="Sweep -alpha as well as +alpha (each sign stops on its own).")
     p.add_argument("--centre-repeats", type=int, default=2,
                    help="Independent samplings of R(0) (sample seeds differ).")
     p.add_argument("--alpha-step", type=float, default=0.02)
     p.add_argument("--alpha-max", type=float, default=0.24)
+    p.add_argument("--alphas", type=float, nargs="+", default=None,
+                   help="Explicit increasing alpha grid; overrides --alpha-step / --alpha-max.")
     p.add_argument("--stop-frac", type=float, default=0.2,
                    help="Stop a direction after --stop-confirm points below stop_frac x R(0).")
     p.add_argument("--stop-confirm", type=int, default=1)
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
+    p.add_argument("--dtype", choices=["float32", "bfloat16"], default="float32",
+                   help="vLLM weight dtype. bfloat16 rounds the perturbation: below alpha ~1 most of "
+                        "it is lost (per-weight shift < bf16 spacing); fine for alpha >= ~5.")
     p.add_argument("--output-dir", default="results/basin")
     p.add_argument("--work-dir", default=os.path.join(os.environ.get("WORK", "/workspace"), "basin_tmp"))
     p.add_argument("--keep-work", action="store_true", help="Keep base/direction .pt files.")
@@ -91,6 +107,8 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{args.model_name}_{Path(args.eval_json).stem}_p{args.num_prompts}_g{args.group_size}"
+    if args.direction != "filter":
+        stem += f"_{args.direction}"
     csv_path = out_dir / f"{stem}.csv"
     rollout_dir = out_dir / "rollouts" / stem
     rollout_dir.mkdir(parents=True, exist_ok=True)
@@ -99,24 +117,45 @@ def main():
     pool = load_eval_data(args.eval_json, 10**9, "math500")
     data = random.Random(args.prompt_seed).sample(pool, args.num_prompts)
 
-    # ---------------- canonical base + directions (fp32, CPU) ----------------
-    base_path = work_dir / "base_canon.pt"
-    dir_paths = [work_dir / f"dir_canon_seed{s}.pt" for s in args.dir_seeds]
-    if not (base_path.exists() and all(p.exists() for p in dir_paths)):
-        params, config = load_fp32_params(args.model_ckpt)
-        base = canonicalize(params, config)
-        from transformers import AutoTokenizer
+    if args.direction == "files":
+        if not args.direction_files:
+            raise SystemExit("--direction files needs --direction-files")
+        args.dir_seeds = list(range(len(args.direction_files)))
+        base_path = work_dir / "base_files.pt"
+        if not base_path.exists():
+            params, _ = load_fp32_params(args.model_ckpt)
+            torch.save(params, base_path)
+            n = sum(v.numel() for v in params.values())
+            (work_dir / "dims.json").write_text(json.dumps({"n_params": n, "n_perturbed": n}))
+            del params
+        dir_paths = [Path(f) for f in args.direction_files]
 
-        tok = AutoTokenizer.from_pretrained(args.model_ckpt)
-        token_lists = [tok(build_prompt_text(tok, ex))["input_ids"] for ex in data[:8]]
-        before, after = check_function_preserved(args.model_ckpt, base, token_lists)
-        print(f"[canonicalize] NLL before {before:.7f} after {after:.7f}", flush=True)
-        if abs(before - after) > 1e-4:
-            raise RuntimeError("Canonicalization changed the model output: bug.")
+    # ---------------- base + directions (fp32, CPU) ----------------
+    tag = "canon" if args.direction == "filter" else args.direction
+    if args.direction != "files":
+        base_path = work_dir / f"base_{tag}.pt"
+        dir_paths = [work_dir / f"dir_{tag}_seed{s}.pt" for s in args.dir_seeds]
+    if args.direction != "files" and not (base_path.exists() and all(p.exists() for p in dir_paths)):
+        params, config = load_fp32_params(args.model_ckpt)
+        if args.direction == "filter":
+            base = canonicalize(params, config)
+            from transformers import AutoTokenizer
+
+            tok = AutoTokenizer.from_pretrained(args.model_ckpt)
+            token_lists = [tok(build_prompt_text(tok, ex))["input_ids"] for ex in data[:8]]
+            before, after = check_function_preserved(args.model_ckpt, base, token_lists)
+            print(f"[canonicalize] NLL before {before:.7f} after {after:.7f}", flush=True)
+            if abs(before - after) > 1e-4:
+                raise RuntimeError("Canonicalization changed the model output: bug.")
+        else:
+            base = params  # raw checkpoint, no canonicalization
         n_params = sum(v.numel() for v in base.values())
         torch.save(base, base_path)
         for seed, path in zip(args.dir_seeds, dir_paths):
-            direction = filter_normalized_direction(base, seed, perturb_norms="none")
+            if args.direction == "filter":
+                direction = filter_normalized_direction(base, seed, perturb_norms="none")
+            else:
+                direction = unit_direction(base, seed, norms_only=args.direction == "unit_norms")
             n_perturbed = sum(int((v != 0).sum()) for v in direction.values())
             torch.save(direction, path)
         (work_dir / "dims.json").write_text(json.dumps({"n_params": n_params, "n_perturbed": n_perturbed}))
@@ -124,7 +163,7 @@ def main():
     (out_dir / f"{stem}_dims.json").write_text((work_dir / "dims.json").read_text())
 
     # ---------------- vLLM ----------------
-    llm = LLM(model=args.model_ckpt, dtype="float32",
+    llm = LLM(model=args.model_ckpt, dtype=args.dtype,
               gpu_memory_utilization=args.gpu_memory_utilization,
               max_model_len=args.max_new_tokens + 1024, enable_prefix_caching=False,
               seed=args.sample_seed)
@@ -190,21 +229,27 @@ def main():
     r0 = float(np.mean([r["reward"] for r in centre]))
     print(f"R(0) = {r0:.3f}", flush=True)
 
-    alphas = np.round(np.arange(1, int(round(args.alpha_max / args.alpha_step)) + 1) * args.alpha_step, 6)
+    if args.alphas:
+        alphas = np.round(np.array(sorted(args.alphas)), 6)
+    else:
+        alphas = np.round(np.arange(1, int(round(args.alpha_max / args.alpha_step)) + 1) * args.alpha_step, 6)
     for i, seed in enumerate(args.dir_seeds):
-        rows = prev[prev["dir_seed"] == seed].sort_values("alpha")["reward"].tolist()
-        below = sum(1 for r in rows[-args.stop_confirm:] if r < args.stop_frac * r0)
-        for alpha in alphas:
-            if below >= args.stop_confirm:
-                break
-            if (seed, float(alpha), 0) in done:
-                continue
-            t0 = time.time()
-            row = record(evaluate(i, float(alpha)))
-            below = below + 1 if row["reward"] < args.stop_frac * r0 else 0
+        for sign in ((1, -1) if args.signed else (1,)):
+            mine = prev[(prev["dir_seed"] == seed) & (np.sign(prev["alpha"]) == sign)]
+            rows = mine.assign(a=mine["alpha"].abs()).sort_values("a")["reward"].tolist()
+            below = sum(1 for r in rows[-args.stop_confirm:] if r < args.stop_frac * r0)
+            for alpha in alphas * sign:
+                if below >= args.stop_confirm:
+                    break
+                if (seed, float(alpha), 0) in done:
+                    continue
+                t0 = time.time()
+                row = record(evaluate(i, float(alpha)))
+                below = below + 1 if row["reward"] < args.stop_frac * r0 else 0
     set_plane_point(llm, [0.0] * k)
     if not args.keep_work:
-        for path in [base_path, *dir_paths]:
+        # never delete caller-provided direction files
+        for path in [base_path, *(dir_paths if args.direction != "files" else [])]:
             path.unlink(missing_ok=True)
     print("Done:", csv_path)
 
